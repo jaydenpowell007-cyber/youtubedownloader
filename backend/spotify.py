@@ -13,6 +13,9 @@ class SpotifyTrack:
     album: str
     duration_ms: int
     search_query: str  # pre-built query for YouTube/SoundCloud search
+    album_art: str = ""  # URL to album artwork
+    release_year: str = ""
+    isrc: str = ""  # International Standard Recording Code
 
 
 def parse_playlist_id(url: str) -> str:
@@ -75,7 +78,7 @@ def get_playlist_tracks(url: str) -> tuple[str, list[SpotifyTrack]]:
         resp = httpx.get(
             f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
             params={
-                "fields": "items(track(name,artists(name),album(name),duration_ms)),next,total",
+                "fields": "items(track(name,artists(name),album(name,images,release_date),duration_ms,external_ids)),next,total",
                 "offset": offset,
                 "limit": limit,
             },
@@ -92,8 +95,21 @@ def get_playlist_tracks(url: str) -> tuple[str, list[SpotifyTrack]]:
 
             artists = ", ".join(a["name"] for a in track.get("artists", []) if a.get("name"))
             title = track["name"]
-            album = track.get("album", {}).get("name", "")
+            album_data = track.get("album", {})
+            album = album_data.get("name", "")
             duration_ms = track.get("duration_ms", 0)
+
+            # Extract album artwork (largest available)
+            images = album_data.get("images", [])
+            album_art = images[0]["url"] if images else ""
+
+            # Extract release year
+            release_date = album_data.get("release_date", "")
+            release_year = release_date[:4] if release_date else ""
+
+            # Extract ISRC
+            ext_ids = track.get("external_ids", {})
+            isrc = ext_ids.get("isrc", "")
 
             # Build a search query that works well on YouTube/SoundCloud
             search_query = f"{artists} - {title}" if artists else title
@@ -104,6 +120,9 @@ def get_playlist_tracks(url: str) -> tuple[str, list[SpotifyTrack]]:
                 album=album,
                 duration_ms=duration_ms,
                 search_query=search_query,
+                album_art=album_art,
+                release_year=release_year,
+                isrc=isrc,
             ))
 
         if not data.get("next"):

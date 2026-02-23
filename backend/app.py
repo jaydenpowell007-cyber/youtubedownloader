@@ -1,11 +1,12 @@
 """FastAPI backend for YouTube & SoundCloud MP3 Downloader."""
 
 import asyncio
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -21,14 +22,17 @@ from backend.downloader import (
     start_download,
     start_download_single,
     start_download_batch,
+    register_ws_listener,
+    unregister_ws_listener,
     QUALITY_OPTIONS,
 )
 from backend.search import search
 from backend.spotify import get_playlist_tracks
 from backend.history import get_history, get_history_count, delete_entry
 from backend.rekordbox import generate_rekordbox_xml
+from backend import settings as user_settings
 
-app = FastAPI(title="MP3 Downloader — DJ Edition", version="4.0.0")
+app = FastAPI(title="MP3 Downloader — DJ Edition", version="5.0.0")
 
 # CORS: configurable via env, defaults to localhost dev
 _cors_origins = os.environ.get(
@@ -79,10 +83,27 @@ class SpotifyImportRequest(BaseModel):
     output_dir: Optional[str] = None
 
 
+class SpotifyMatchRequest(BaseModel):
+    """Request to find YouTube matches for Spotify tracks."""
+    tracks: list[dict]
+    platform: str = "youtube"
+    max_results: int = 3
+
+
+class SpotifyDownloadMatchedRequest(BaseModel):
+    """Download specific YouTube URLs with Spotify metadata enrichment."""
+    items: list[dict]  # Each: {url, spotify_meta: {title, artist, album, album_art, year}}
+    quality: str = "320"
+
+
 class HistoryRequest(BaseModel):
     limit: int = 100
     offset: int = 0
     search: str = ""
+
+
+class SettingsUpdateRequest(BaseModel):
+    settings: dict
 
 
 class JobStatus(BaseModel):
@@ -117,6 +138,8 @@ class SpotifyTrackResponse(BaseModel):
     album: str
     duration_ms: int
     search_query: str
+    album_art: str = ""
+    release_year: str = ""
 
 
 class HistoryEntryResponse(BaseModel):
@@ -159,6 +182,15 @@ def _job_to_status(j) -> JobStatus:
     )
 
 
+def _get_settings_for_download() -> dict:
+    """Load user settings relevant to downloads."""
+    s = user_settings.get_all()
+    return {
+        "filename_template": s.get("filename_template", "{artist} - {title}"),
+        "normalize": s.get("normalize", True),
+    }
+
+
 # --- Endpoints ---
 
 
@@ -167,13 +199,54 @@ def health():
     return {"status": "ok", "downloads_dir": DOWNLOADS_DIR}
 
 
+# --- WebSocket for real-time progress ---
+
+
+@app.websocket("/ws/progress")
+async def ws_progress(websocket: WebSocket):
+    """WebSocket endpoint for real-time job progress updates."""
+    await websocket.accept()
+    queue = asyncio.Queue()
+    register_ws_listener(queue)
+    try:
+        while True:
+            data = await queue.get()
+            await websocket.send_json(data)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        unregister_ws_listener(queue)
+
+
+# --- Settings ---
+
+
+@app.get("/api/settings")
+def api_get_settings():
+    """Get all user settings."""
+    return user_settings.get_all()
+
+
+@app.post("/api/settings")
+def api_update_settings(req: SettingsUpdateRequest):
+    """Update user settings."""
+    return user_settings.update_many(req.settings)
+
+
+# --- Download Endpoints ---
+
+
 @app.post("/api/download", response_model=list[JobStatus])
 async def api_download(req: DownloadRequest):
     """Download a YouTube or SoundCloud URL (single track or playlist/set). Blocks until complete."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
     try:
         jobs = await loop.run_in_executor(
-            executor, lambda: download(req.url, req.output_dir, req.quality)
+            executor, lambda: download(req.url, req.output_dir, req.quality,
+                                       ds["filename_template"], ds["normalize"])
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -182,11 +255,13 @@ async def api_download(req: DownloadRequest):
 
 @app.post("/api/download/start", response_model=list[JobStatus])
 async def api_download_start(req: DownloadRequest):
-    """Start download in background. Returns job IDs immediately — poll /api/job/{id} for progress."""
+    """Start download in background. Returns job IDs immediately."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
     try:
         jobs = await loop.run_in_executor(
-            executor, lambda: start_download(req.url, req.output_dir, req.quality)
+            executor, lambda: start_download(req.url, req.output_dir, req.quality,
+                                             ds["filename_template"], ds["normalize"])
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -197,11 +272,14 @@ async def api_download_start(req: DownloadRequest):
 async def api_download_selected(req: DownloadSelectedRequest):
     """Download multiple selected URLs. Blocks until complete."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
     all_jobs = []
     for url in req.urls:
         try:
             job = await loop.run_in_executor(
-                executor, lambda u=url: download_single(u, req.output_dir, quality=req.quality)
+                executor, lambda u=url: download_single(u, req.output_dir, quality=req.quality,
+                                                        filename_template=ds["filename_template"],
+                                                        normalize=ds["normalize"])
             )
             all_jobs.append(job)
         except Exception as e:
@@ -212,11 +290,13 @@ async def api_download_selected(req: DownloadSelectedRequest):
 @app.post("/api/download-selected/start", response_model=list[JobStatus])
 async def api_download_selected_start(req: DownloadSelectedRequest):
     """Start multiple downloads in background. Returns immediately."""
+    ds = _get_settings_for_download()
     jobs = []
     for url in req.urls:
         url = url.strip()
         if url:
-            jobs.append(start_download_single(url, req.output_dir, req.quality))
+            jobs.append(start_download_single(url, req.output_dir, req.quality,
+                                              ds["filename_template"], ds["normalize"]))
     return [_job_to_status(j) for j in jobs]
 
 
@@ -315,17 +395,78 @@ async def api_spotify_tracks(req: SpotifyImportRequest):
         SpotifyTrackResponse(
             title=t.title, artist=t.artist, album=t.album,
             duration_ms=t.duration_ms, search_query=t.search_query,
+            album_art=t.album_art, release_year=t.release_year,
         )
         for t in tracks
     ]
+
+
+@app.post("/api/spotify/match")
+async def api_spotify_match(req: SpotifyMatchRequest):
+    """Find YouTube/SoundCloud matches for Spotify tracks.
+
+    Returns a list of {spotify_track, matches: [{title, url, duration, channel, thumbnail, source}]}
+    """
+    loop = asyncio.get_event_loop()
+    results = []
+
+    for track_data in req.tracks:
+        query = track_data.get("search_query", "")
+        if not query:
+            continue
+
+        try:
+            matches = await loop.run_in_executor(
+                executor, lambda q=query: search(q, req.platform, req.max_results)
+            )
+            results.append({
+                "spotify_track": track_data,
+                "matches": [
+                    {
+                        "title": m.title,
+                        "url": m.url,
+                        "duration": m.duration,
+                        "channel": m.channel,
+                        "thumbnail": m.thumbnail,
+                        "source": m.source,
+                    }
+                    for m in matches
+                ],
+            })
+        except Exception:
+            results.append({
+                "spotify_track": track_data,
+                "matches": [],
+            })
+
+    return results
+
+
+@app.post("/api/spotify/download-matched", response_model=list[JobStatus])
+async def api_spotify_download_matched(req: SpotifyDownloadMatchedRequest):
+    """Download YouTube URLs with Spotify metadata enrichment."""
+    ds = _get_settings_for_download()
+    jobs = []
+    for item in req.items:
+        url = item.get("url", "").strip()
+        if not url:
+            continue
+        spotify_meta = item.get("spotify_meta", {})
+        job = start_download_single(
+            url, None, req.quality,
+            ds["filename_template"], ds["normalize"],
+            spotify_meta=spotify_meta,
+        )
+        jobs.append(job)
+    return [_job_to_status(j) for j in jobs]
 
 
 @app.post("/api/spotify/download", response_model=list[JobStatus])
 async def api_spotify_download(req: SpotifyImportRequest):
     """Import a Spotify playlist: fetch tracks, search on YouTube/SC, download as MP3."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
 
-    # 1. Get Spotify track list
     try:
         name, tracks = await loop.run_in_executor(
             executor, lambda: get_playlist_tracks(req.url)
@@ -333,7 +474,6 @@ async def api_spotify_download(req: SpotifyImportRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Spotify error: {e}")
 
-    # 2. For each track, search and download the top result
     all_jobs = []
     for track in tracks:
         try:
@@ -342,13 +482,25 @@ async def api_spotify_download(req: SpotifyImportRequest):
                 lambda q=track.search_query: search(q, req.platform, 1),
             )
             if results:
+                spotify_meta = {
+                    "title": track.title,
+                    "artist": track.artist,
+                    "album": track.album,
+                    "album_art": track.album_art,
+                    "year": track.release_year,
+                }
                 job = await loop.run_in_executor(
                     executor,
-                    lambda u=results[0].url: download_single(u, req.output_dir),
+                    lambda u=results[0].url, sm=spotify_meta: download_single(
+                        u, req.output_dir,
+                        filename_template=ds["filename_template"],
+                        normalize=ds["normalize"],
+                        spotify_meta=sm,
+                    ),
                 )
                 all_jobs.append(job)
         except Exception:
-            continue  # Skip tracks that fail
+            continue
 
     return [_job_to_status(j) for j in all_jobs]
 
@@ -360,6 +512,7 @@ async def api_spotify_download(req: SpotifyImportRequest):
 async def api_download_batch(req: BatchDownloadRequest):
     """Download multiple URLs — each auto-detects single vs playlist. Blocks until complete."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
     all_jobs = []
     for url in req.urls:
         url = url.strip()
@@ -367,7 +520,8 @@ async def api_download_batch(req: BatchDownloadRequest):
             continue
         try:
             jobs = await loop.run_in_executor(
-                executor, lambda u=url: download(u, req.output_dir, req.quality)
+                executor, lambda u=url: download(u, req.output_dir, req.quality,
+                                                 ds["filename_template"], ds["normalize"])
             )
             all_jobs.extend(jobs)
         except Exception:
@@ -379,9 +533,11 @@ async def api_download_batch(req: BatchDownloadRequest):
 async def api_download_batch_start(req: BatchDownloadRequest):
     """Start batch downloads in background. Returns immediately."""
     loop = asyncio.get_event_loop()
+    ds = _get_settings_for_download()
     try:
         jobs = await loop.run_in_executor(
-            executor, lambda: start_download_batch(req.urls, req.output_dir, req.quality)
+            executor, lambda: start_download_batch(req.urls, req.output_dir, req.quality,
+                                                   ds["filename_template"], ds["normalize"])
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

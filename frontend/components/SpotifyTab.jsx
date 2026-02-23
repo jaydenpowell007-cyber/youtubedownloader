@@ -9,6 +9,8 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
   const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [matchResults, setMatchResults] = useState(null); // {trackIndex: {matches: [], selectedMatch: 0}}
   const [error, setError] = useState("");
 
   const fetchTracks = async () => {
@@ -17,6 +19,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
     setError("");
     setTracks([]);
     setSelected(new Set());
+    setMatchResults(null);
 
     try {
       const res = await fetch("/api/spotify/tracks", {
@@ -30,7 +33,6 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
       }
       const data = await res.json();
       setTracks(data);
-      // Auto-select all
       setSelected(new Set(data.map((_, i) => i)));
     } catch (e) {
       setError(e.message);
@@ -56,45 +58,150 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
     }
   };
 
+  // Find YouTube matches for selected tracks
+  const handleFindMatches = async () => {
+    if (selected.size === 0) return;
+    setMatching(true);
+    setError("");
+
+    const selectedTracks = [...selected].map((i) => ({
+      index: i,
+      ...tracks[i],
+    }));
+
+    try {
+      const res = await fetch("/api/spotify/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tracks: selectedTracks.map((t) => ({
+            search_query: t.search_query,
+            title: t.title,
+            artist: t.artist,
+          })),
+          platform: "youtube",
+          max_results: 3,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || "Matching failed");
+      }
+      const data = await res.json();
+
+      // Build match results map
+      const results = {};
+      data.forEach((item, idx) => {
+        const trackIndex = selectedTracks[idx].index;
+        results[trackIndex] = {
+          matches: item.matches || [],
+          selectedMatch: 0,
+        };
+      });
+      setMatchResults(results);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setMatching(false);
+    }
+  };
+
+  const changeMatch = (trackIndex, matchIndex) => {
+    setMatchResults((prev) => ({
+      ...prev,
+      [trackIndex]: { ...prev[trackIndex], selectedMatch: matchIndex },
+    }));
+  };
+
+  // Download with Spotify metadata enrichment
   const handleDownload = async () => {
     if (selected.size === 0) return;
     setDownloading(true);
     setError("");
 
-    const selectedTracks = [...selected].map((i) => tracks[i]);
-
     try {
-      for (const track of selectedTracks) {
-        try {
-          // Search for the track on YouTube
-          const searchRes = await fetch("/api/search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              query: track.search_query,
-              platform: "youtube",
-              max_results: 1,
-            }),
+      if (matchResults) {
+        // Download matched tracks with Spotify metadata
+        const items = [...selected]
+          .filter((i) => matchResults[i] && matchResults[i].matches.length > 0)
+          .map((i) => {
+            const match = matchResults[i].matches[matchResults[i].selectedMatch];
+            const track = tracks[i];
+            return {
+              url: match.url,
+              spotify_meta: {
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                album_art: track.album_art || "",
+                year: track.release_year || "",
+              },
+            };
           });
-          if (!searchRes.ok) continue;
-          const results = await searchRes.json();
-          if (results.length === 0) continue;
 
-          // Start async download for the top result
-          const dlRes = await fetch("/api/download/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: results[0].url, quality }),
-          });
-          if (!dlRes.ok) continue;
-          const dlJobs = await dlRes.json();
-          onDownload(dlJobs);
-        } catch {
-          continue;
+        if (items.length === 0) {
+          setError("No matched tracks to download");
+          setDownloading(false);
+          return;
+        }
+
+        const res = await fetch("/api/spotify/download-matched", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items, quality }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || "Download failed");
+        }
+        const jobs = await res.json();
+        onDownload(jobs);
+      } else {
+        // Direct download without matching (auto-search + download)
+        const selectedTracks = [...selected].map((i) => tracks[i]);
+        for (const track of selectedTracks) {
+          try {
+            const searchRes = await fetch("/api/search", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                query: track.search_query,
+                platform: "youtube",
+                max_results: 1,
+              }),
+            });
+            if (!searchRes.ok) continue;
+            const results = await searchRes.json();
+            if (results.length === 0) continue;
+
+            const dlRes = await fetch("/api/spotify/download-matched", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                items: [{
+                  url: results[0].url,
+                  spotify_meta: {
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    album_art: track.album_art || "",
+                    year: track.release_year || "",
+                  },
+                }],
+                quality,
+              }),
+            });
+            if (!dlRes.ok) continue;
+            const dlJobs = await dlRes.json();
+            onDownload(dlJobs);
+          } catch {
+            continue;
+          }
         }
       }
 
       setSelected(new Set());
+      setMatchResults(null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -113,7 +220,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4">
         <h2 className="text-base font-semibold">Import from Spotify</h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          Paste a Spotify playlist URL — tracks will be found on YouTube and downloaded as MP3
+          Paste a Spotify playlist URL — tracks will be matched on YouTube and downloaded with Spotify metadata
         </p>
 
         <div className="flex gap-3">
@@ -161,60 +268,137 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
 
           <div className="space-y-2 max-h-[480px] overflow-y-auto pr-2">
             {tracks.map((t, i) => (
-              <button
-                key={i}
-                onClick={() => toggleSelect(i)}
-                className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-all ${
-                  selected.has(i)
-                    ? "bg-brand-600/15 border border-brand-500/30"
-                    : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
-                }`}
-              >
-                {/* Checkbox */}
-                <div
-                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+              <div key={i} className="space-y-1">
+                <button
+                  onClick={() => toggleSelect(i)}
+                  className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-all ${
                     selected.has(i)
-                      ? "bg-brand-600 border-brand-600"
-                      : "border-[var(--border)]"
+                      ? "bg-brand-600/15 border border-brand-500/30"
+                      : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
                   }`}
                 >
-                  {selected.has(i) && (
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
+                  {/* Checkbox */}
+                  <div
+                    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      selected.has(i)
+                        ? "bg-brand-600 border-brand-600"
+                        : "border-[var(--border)]"
+                    }`}
+                  >
+                    {selected.has(i) && (
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* Album art */}
+                  {t.album_art && (
+                    <img
+                      src={t.album_art}
+                      alt=""
+                      className="w-10 h-10 object-cover rounded-md flex-shrink-0"
+                    />
                   )}
-                </div>
 
-                {/* Track number */}
-                <span className="text-[var(--text-secondary)] text-xs w-5 text-right flex-shrink-0">
-                  {i + 1}
-                </span>
+                  {/* Track number */}
+                  <span className="text-[var(--text-secondary)] text-xs w-5 text-right flex-shrink-0">
+                    {i + 1}
+                  </span>
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{t.title}</p>
-                  <p className="text-xs text-[var(--text-secondary)] truncate">
-                    {t.artist}
-                    {t.album && ` — ${t.album}`}
-                    {t.duration_ms > 0 && ` · ${formatDuration(t.duration_ms)}`}
-                  </p>
-                </div>
-              </button>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{t.title}</p>
+                    <p className="text-xs text-[var(--text-secondary)] truncate">
+                      {t.artist}
+                      {t.album && ` — ${t.album}`}
+                      {t.duration_ms > 0 && ` · ${formatDuration(t.duration_ms)}`}
+                    </p>
+                  </div>
+                </button>
+
+                {/* Match results for this track */}
+                {matchResults && matchResults[i] && matchResults[i].matches.length > 0 && selected.has(i) && (
+                  <div className="ml-10 space-y-1">
+                    {matchResults[i].matches.map((m, mi) => (
+                      <button
+                        key={mi}
+                        onClick={() => changeMatch(i, mi)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-xs transition-all ${
+                          matchResults[i].selectedMatch === mi
+                            ? "bg-green-600/15 border border-green-500/30"
+                            : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
+                        }`}
+                      >
+                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                          matchResults[i].selectedMatch === mi
+                            ? "border-green-500 bg-green-500"
+                            : "border-[var(--border)]"
+                        }`}>
+                          {matchResults[i].selectedMatch === mi && (
+                            <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                          )}
+                        </div>
+                        {m.thumbnail && (
+                          <img src={m.thumbnail} alt="" className="w-12 h-8 object-cover rounded flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate font-medium">{m.title}</p>
+                          <p className="text-[var(--text-secondary)] truncate">{m.channel} · {m.duration}</p>
+                        </div>
+                        <span className={`text-[9px] font-semibold uppercase px-1 py-0.5 rounded flex-shrink-0 ${
+                          m.source === "soundcloud"
+                            ? "bg-orange-500/15 text-orange-400"
+                            : "bg-red-500/15 text-red-400"
+                        }`}>
+                          {m.source === "soundcloud" ? "SC" : "YT"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {matchResults && matchResults[i] && matchResults[i].matches.length === 0 && selected.has(i) && (
+                  <div className="ml-10 px-3 py-2 rounded-lg bg-yellow-500/10 text-yellow-400 text-xs">
+                    No matches found
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
           {selected.size > 0 && (
             <div className="space-y-3">
               <QualitySelector quality={quality} onChange={onQualityChange} />
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
-              >
-                {downloading
-                  ? `Downloading... (tracks are added to queue as they complete)`
-                  : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as ${quality === "flac" ? "FLAC" : "MP3"}`}
-              </button>
+
+              <div className="flex gap-3">
+                {!matchResults && (
+                  <button
+                    onClick={handleFindMatches}
+                    disabled={matching}
+                    className="flex-1 px-6 py-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] hover:border-brand-500 text-sm font-semibold transition-all"
+                  >
+                    {matching ? "Finding matches..." : "Preview Matches"}
+                  </button>
+                )}
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className={`${matchResults ? "w-full" : "flex-1"} px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse`}
+                >
+                  {downloading
+                    ? "Downloading..."
+                    : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as ${quality === "flac" ? "FLAC" : "MP3"}`}
+                </button>
+              </div>
+
+              {matchResults && (
+                <button
+                  onClick={() => setMatchResults(null)}
+                  className="w-full text-xs text-[var(--text-secondary)] hover:text-white transition-colors py-1"
+                >
+                  Clear matches
+                </button>
+              )}
             </div>
           )}
         </div>

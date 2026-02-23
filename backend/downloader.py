@@ -1,10 +1,12 @@
 """YouTube & SoundCloud to MP3 downloader using yt-dlp."""
 
+import asyncio
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -48,10 +50,54 @@ class DownloadProgress:
 _jobs: dict[str, DownloadProgress] = {}
 _jobs_lock = Lock()
 
+# WebSocket listeners — set of asyncio.Queue
+_ws_listeners: list = []
+_ws_lock = Lock()
+
 
 def _set_job(job: DownloadProgress):
     with _jobs_lock:
         _jobs[job.job_id] = job
+    _notify_ws(job)
+
+
+def _notify_ws(job: DownloadProgress):
+    """Push job update to all connected WebSocket listeners."""
+    with _ws_lock:
+        dead = []
+        for q in _ws_listeners:
+            try:
+                q.put_nowait({
+                    "job_id": job.job_id,
+                    "status": job.status,
+                    "title": job.title,
+                    "progress": job.progress,
+                    "filename": job.filename,
+                    "error": job.error,
+                    "source": job.source,
+                    "bpm": job.bpm,
+                    "key": job.key,
+                    "camelot": job.camelot,
+                    "normalized": job.normalized,
+                    "skipped_reason": job.skipped_reason,
+                    "quality": job.quality,
+                    "format_type": job.format_type,
+                })
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            _ws_listeners.remove(q)
+
+
+def register_ws_listener(queue) -> None:
+    with _ws_lock:
+        _ws_listeners.append(queue)
+
+
+def unregister_ws_listener(queue) -> None:
+    with _ws_lock:
+        if queue in _ws_listeners:
+            _ws_listeners.remove(queue)
 
 
 def get_job_status(job_id: str) -> Optional[DownloadProgress]:
@@ -122,28 +168,21 @@ def extract_info(url: str) -> dict:
 
 
 def is_multi_track(url: str) -> bool:
-    """Check if a URL points to multiple tracks (playlist, set, artist page).
-
-    Works for both YouTube playlists and SoundCloud sets/artist pages.
-    """
+    """Check if a URL points to multiple tracks (playlist, set, artist page)."""
     source = detect_source(url)
 
     if source == "youtube":
         return "list=" in url
 
     if source == "soundcloud":
-        # SoundCloud sets, albums, playlists, and artist track pages
         path = url.rstrip("/").split("soundcloud.com/")[-1]
         parts = path.strip("/").split("/")
-        # Artist page (just username, no specific track) = multi-track
         if len(parts) == 1:
             return True
-        # Explicit set/album paths
         if len(parts) >= 2 and parts[1] in ("sets", "albums", "likes", "tracks", "reposts"):
             return True
         return False
 
-    # For unknown sources, check via yt-dlp metadata
     try:
         info = extract_info(url)
         return info.get("_type") == "playlist" or "entries" in info
@@ -152,11 +191,7 @@ def is_multi_track(url: str) -> bool:
 
 
 def _resolve_quality(quality: str) -> tuple[str, str]:
-    """Resolve quality string to (codec, bitrate) tuple.
-
-    Returns:
-        (codec, ext) — e.g. ("mp3", "mp3") or ("flac", "flac")
-    """
+    """Resolve quality string to (codec, ext) tuple."""
     if quality == "flac":
         return "flac", "flac"
     if quality not in ("128", "192", "256", "320"):
@@ -164,11 +199,65 @@ def _resolve_quality(quality: str) -> tuple[str, str]:
     return "mp3", "mp3"
 
 
+def _sanitize_filename(name: str) -> str:
+    """Sanitize a string for use as a filename."""
+    # Remove characters that are problematic on most filesystems
+    name = re.sub(r'[<>:"/\\|?*]', '', name)
+    # Collapse multiple spaces/dots
+    name = re.sub(r'\s+', ' ', name).strip()
+    name = name.strip('.')
+    # Limit length
+    if len(name) > 200:
+        name = name[:200]
+    return name or "Unknown"
+
+
+def _apply_filename_template(
+    template: str,
+    title: str = "",
+    artist: str = "",
+    bpm: Optional[int] = None,
+    key: Optional[str] = None,
+    camelot: Optional[str] = None,
+    source: str = "",
+) -> str:
+    """Apply a filename template with available metadata.
+
+    Supported placeholders: {title}, {artist}, {bpm}, {key}, {camelot}, {source}
+    If a placeholder value is empty, the placeholder and surrounding separators are cleaned up.
+    """
+    result = template
+    replacements = {
+        "{title}": title or "Unknown",
+        "{artist}": artist or "",
+        "{bpm}": str(bpm) if bpm else "",
+        "{key}": key or "",
+        "{camelot}": camelot or "",
+        "{source}": source or "",
+    }
+
+    for placeholder, value in replacements.items():
+        result = result.replace(placeholder, value)
+
+    # Clean up leftover separators from empty placeholders
+    result = re.sub(r'\s*-\s*-\s*', ' - ', result)  # double dashes
+    result = re.sub(r'\s*\[\s*\]', '', result)  # empty brackets
+    result = re.sub(r'\s*\(\s*\)', '', result)  # empty parens
+    result = re.sub(r'^\s*-\s*', '', result)  # leading dash
+    result = re.sub(r'\s*-\s*$', '', result)  # trailing dash
+    result = result.strip()
+
+    return _sanitize_filename(result) if result else "Unknown"
+
+
 def download_single(
     url: str,
     output_dir: Optional[str] = None,
     skip_duplicates: bool = True,
     quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
+    spotify_meta: Optional[dict] = None,
 ) -> DownloadProgress:
     """Download a single track. Returns job info (blocks until complete)."""
     fmt_type = "flac" if quality == "flac" else "mp3"
@@ -179,7 +268,7 @@ def download_single(
         format_type=fmt_type,
     )
     _set_job(job)
-    _run_download(job, url, output_dir, quality, skip_duplicates)
+    _run_download(job, url, output_dir, quality, skip_duplicates, filename_template, normalize, spotify_meta)
     return job
 
 
@@ -189,6 +278,9 @@ def _run_download(
     output_dir: Optional[str],
     quality: str,
     skip_duplicates: bool,
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
+    spotify_meta: Optional[dict] = None,
 ):
     """Core download worker — updates job in-place. Used by both sync and async paths."""
     from backend.history import is_duplicate, record_download
@@ -257,16 +349,17 @@ def _run_download(
                 _set_job(job)
                 return
 
-        # --- Post-download pipeline: normalize → analyze → tag → record ---
+        # --- Post-download pipeline: normalize → analyze → tag → rename → record ---
         if job.filename and os.path.exists(job.filename):
             # 1. Normalize audio loudness
-            job.status = "normalizing"
-            _set_job(job)
-            try:
-                normalize_audio(job.filename, quality=quality)
-                job.normalized = True
-            except NormalizationError:
-                pass  # Normalization is best-effort
+            if normalize:
+                job.status = "normalizing"
+                _set_job(job)
+                try:
+                    normalize_audio(job.filename, quality=quality)
+                    job.normalized = True
+                except NormalizationError:
+                    pass  # Normalization is best-effort
 
             # 2. BPM & key detection
             job.status = "analyzing"
@@ -280,12 +373,18 @@ def _run_download(
             job.key = analysis.get("key")
             job.camelot = analysis.get("camelot")
 
-            # 3. Extract artist/title and write ID3 tags (MP3 only — FLAC uses Vorbis comments via mutagen)
+            # 3. Extract artist/title and write ID3 tags
             artist, title = extract_artist_title(info.get("title", ""))
-            thumbnail = info.get("thumbnail", "")
+
+            # Enrich with Spotify metadata if available
+            if spotify_meta:
+                if spotify_meta.get("artist"):
+                    artist = spotify_meta["artist"]
+                if spotify_meta.get("title"):
+                    title = spotify_meta["title"]
 
             if ext == "mp3":
-                tag_mp3(
+                tag_kwargs = dict(
                     filepath=job.filename,
                     title=title or info.get("title", ""),
                     artist=artist or info.get("channel", info.get("uploader", "")),
@@ -294,14 +393,46 @@ def _run_download(
                     bpm=job.bpm,
                     key=job.key,
                     camelot=job.camelot,
-                    thumbnail_url=thumbnail,
+                    thumbnail_url=info.get("thumbnail", ""),
                 )
+                # Enrich with Spotify metadata
+                if spotify_meta:
+                    if spotify_meta.get("album"):
+                        tag_kwargs["album"] = spotify_meta["album"]
+                    if spotify_meta.get("album_art"):
+                        tag_kwargs["thumbnail_url"] = spotify_meta["album_art"]
+                    if spotify_meta.get("genre"):
+                        tag_kwargs["genre"] = spotify_meta["genre"]
+                    if spotify_meta.get("year"):
+                        tag_kwargs["comment"] = f"Released: {spotify_meta['year']}"
 
-            # 4. Record in download history
+                tag_mp3(**tag_kwargs)
+
+            # 4. Rename file using filename template if provided
+            final_artist = artist or info.get("channel", info.get("uploader", ""))
+            if filename_template and filename_template != "{title}":
+                new_name = _apply_filename_template(
+                    filename_template,
+                    title=title or info.get("title", "Unknown"),
+                    artist=final_artist,
+                    bpm=job.bpm,
+                    key=job.key,
+                    camelot=job.camelot,
+                    source=job.source,
+                )
+                new_path = os.path.join(dest, f"{new_name}.{ext}")
+                if new_path != job.filename and not os.path.exists(new_path):
+                    try:
+                        os.rename(job.filename, new_path)
+                        job.filename = new_path
+                    except OSError:
+                        pass  # Keep original name on failure
+
+            # 5. Record in download history
             record_download(
                 url=url,
                 title=job.title,
-                artist=artist or info.get("channel", info.get("uploader", "")),
+                artist=final_artist,
                 filename=job.filename,
                 source=job.source,
                 bpm=job.bpm,
@@ -338,6 +469,9 @@ def start_download_single(
     url: str,
     output_dir: Optional[str] = None,
     quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
+    spotify_meta: Optional[dict] = None,
 ) -> DownloadProgress:
     """Start a single download in the background. Returns job immediately."""
     fmt_type = "flac" if quality == "flac" else "mp3"
@@ -348,7 +482,10 @@ def start_download_single(
         format_type=fmt_type,
     )
     _set_job(job)
-    _bg_executor.submit(_run_download, job, url, output_dir, quality, True)
+    _bg_executor.submit(
+        _run_download, job, url, output_dir, quality, True,
+        filename_template, normalize, spotify_meta,
+    )
     return job
 
 
@@ -356,6 +493,8 @@ def start_download(
     url: str,
     output_dir: Optional[str] = None,
     quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
 ) -> list[DownloadProgress]:
     """Start download(s) in background. Returns job list immediately.
 
@@ -375,15 +514,19 @@ def start_download(
                 else:
                     continue
             if video_url:
-                jobs.append(start_download_single(video_url, output_dir, quality))
+                jobs.append(start_download_single(
+                    video_url, output_dir, quality, filename_template, normalize,
+                ))
         return jobs
-    return [start_download_single(url, output_dir, quality)]
+    return [start_download_single(url, output_dir, quality, filename_template, normalize)]
 
 
 def start_download_batch(
     urls: list[str],
     output_dir: Optional[str] = None,
     quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
 ) -> list[DownloadProgress]:
     """Start batch downloads in background. Returns all jobs immediately."""
     all_jobs = []
@@ -392,7 +535,7 @@ def start_download_batch(
         if not url:
             continue
         try:
-            all_jobs.extend(start_download(url, output_dir, quality))
+            all_jobs.extend(start_download(url, output_dir, quality, filename_template, normalize))
         except Exception:
             continue
     return all_jobs
@@ -401,7 +544,13 @@ def start_download_batch(
 # --- Synchronous download functions (CLI) ---
 
 
-def download_multi(url: str, output_dir: Optional[str] = None, quality: str = "320") -> list[DownloadProgress]:
+def download_multi(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
+) -> list[DownloadProgress]:
     """Download all tracks from a playlist/set/artist page."""
     info = extract_info(url)
     entries = info.get("entries", [])[:MAX_PLAYLIST_SIZE]
@@ -417,14 +566,23 @@ def download_multi(url: str, output_dir: Optional[str] = None, quality: str = "3
                 continue
 
         if video_url:
-            job = download_single(video_url, output_dir, quality=quality)
+            job = download_single(
+                video_url, output_dir, quality=quality,
+                filename_template=filename_template, normalize=normalize,
+            )
             jobs.append(job)
 
     return jobs
 
 
-def download(url: str, output_dir: Optional[str] = None, quality: str = "320") -> list[DownloadProgress]:
+def download(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+    filename_template: Optional[str] = None,
+    normalize: bool = True,
+) -> list[DownloadProgress]:
     """Smart download — detects single vs multi-track and downloads accordingly."""
     if is_multi_track(url):
-        return download_multi(url, output_dir, quality)
-    return [download_single(url, output_dir, quality=quality)]
+        return download_multi(url, output_dir, quality, filename_template, normalize)
+    return [download_single(url, output_dir, quality=quality, filename_template=filename_template, normalize=normalize)]
