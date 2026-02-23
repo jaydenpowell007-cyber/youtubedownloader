@@ -115,6 +115,21 @@ def detect_source(url: str) -> str:
     return "unknown"
 
 
+def _clean_url(url: str) -> str:
+    """Strip tracking parameters from URLs that can interfere with downloads."""
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query, keep_blank_values=False)
+
+    # Remove common tracking parameters that don't affect content resolution
+    for param in ("si", "feature", "pp", "cbrd", "ucbcb"):
+        params.pop(param, None)
+
+    cleaned_query = urlencode(params, doseq=True)
+    return urlunparse(parsed._replace(query=cleaned_query))
+
+
 def _progress_hook(job: DownloadProgress):
     """Return a yt-dlp progress hook bound to a job."""
 
@@ -149,6 +164,7 @@ def _retry(fn, retries: int = 3, description: str = "operation"):
 
 def extract_info(url: str) -> dict:
     """Extract metadata from a URL without downloading."""
+    clean_url = _clean_url(url)
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -158,7 +174,7 @@ def extract_info(url: str) -> dict:
     try:
         def _extract():
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=False)
+                return ydl.extract_info(clean_url, download=False)
 
         return _retry(_extract, description=f"extract info from {url}")
     except NetworkError:
@@ -306,6 +322,7 @@ def _run_download(
             return
 
     bitrate = quality if quality != "flac" else "0"
+    clean_url = _clean_url(url)
     opts = {
         "format": "bestaudio/best",
         "postprocessors": [
@@ -319,16 +336,29 @@ def _run_download(
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_progress_hook(job)],
+        "retries": 3,
+        "fragment_retries": 3,
+        "file_access_retries": 3,
+        "extractor_retries": 3,
     }
 
     try:
         def _download():
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=True)
+                return ydl.extract_info(clean_url, download=True)
 
         info = _retry(_download, description=f"download {url}")
         job.title = info.get("title", "Unknown")
         job.filename = os.path.join(dest, f"{info.get('title', 'Unknown')}.{ext}")
+
+        # Validate that the downloaded file is not empty
+        if job.filename and os.path.exists(job.filename):
+            if os.path.getsize(job.filename) == 0:
+                os.remove(job.filename)
+                raise yt_dlp.utils.DownloadError(
+                    "Downloaded file is empty — this usually means yt-dlp "
+                    "needs updating or the video is unavailable"
+                )
 
         # --- Duplicate check (by title, post-download) ---
         if skip_duplicates and job.title:
