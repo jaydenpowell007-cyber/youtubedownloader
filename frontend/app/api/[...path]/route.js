@@ -8,8 +8,10 @@
  * The backend URL is read from NEXT_PUBLIC_API_URL at runtime.
  */
 
-const BACKEND =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(
+  /\/+$/,
+  "",
+);
 
 /** Headers we should NOT forward from the incoming request. */
 const HOP_BY_HOP = new Set([
@@ -61,7 +63,18 @@ async function proxyRequest(request, { params }) {
     if (ct) headers["content-type"] = ct;
   }
 
-  const upstream = await fetch(url, fetchInit);
+  let upstream;
+  try {
+    upstream = await fetch(url, fetchInit);
+  } catch (err) {
+    return Response.json(
+      {
+        error: "Backend unreachable",
+        detail: `Could not connect to ${BACKEND} — ${err.message}`,
+      },
+      { status: 502 },
+    );
+  }
 
   // Build response headers, skipping problematic ones
   const responseHeaders = new Headers();
