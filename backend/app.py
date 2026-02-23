@@ -472,7 +472,7 @@ async def api_spotify_match(req: SpotifyMatchRequest):
             continue
 
         try:
-            matches = await loop.run_in_executor(
+            search_resp = await loop.run_in_executor(
                 executor, lambda q=query: search(q, req.platform, req.max_results)
             )
             results.append({
@@ -486,7 +486,7 @@ async def api_spotify_match(req: SpotifyMatchRequest):
                         "thumbnail": m.thumbnail,
                         "source": m.source,
                     }
-                    for m in matches
+                    for m in search_resp.results
                 ],
             })
         except Exception:
@@ -533,11 +533,11 @@ async def api_spotify_download(req: SpotifyImportRequest):
     all_jobs = []
     for track in tracks:
         try:
-            results = await loop.run_in_executor(
+            search_resp = await loop.run_in_executor(
                 executor,
                 lambda q=track.search_query: search(q, req.platform, 1),
             )
-            if results:
+            if search_resp.results:
                 spotify_meta = {
                     "title": track.title,
                     "artist": track.artist,
@@ -547,7 +547,7 @@ async def api_spotify_download(req: SpotifyImportRequest):
                 }
                 job = await loop.run_in_executor(
                     executor,
-                    lambda u=results[0].url, sm=spotify_meta: download_single(
+                    lambda u=search_resp.results[0].url, sm=spotify_meta: download_single(
                         u, req.output_dir,
                         filename_template=ds["filename_template"],
                         normalize=ds["normalize"],
