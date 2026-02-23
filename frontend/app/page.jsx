@@ -74,13 +74,18 @@ export default function Home() {
   const reconnectRef = useRef(null);
   const downloadedJobIds = useRef(new Set());
 
-  // Load queue from localStorage on mount
+  // Load queue from localStorage on mount — pre-seed downloadedJobIds
+  // so completed jobs don't retrigger browser downloads on revisit
   useEffect(() => {
     try {
       const saved = localStorage.getItem(QUEUE_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          parsed.forEach((d) => {
+            if (d.status === "done") downloadedJobIds.current.add(d.job_id);
+            if (d.status === "error") downloadedJobIds.current.add(d.job_id + "_err");
+          });
           setDownloads(parsed);
         }
       }
