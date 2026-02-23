@@ -1,5 +1,7 @@
 "use client";
 
+import { apiUrl } from "../lib/api";
+
 export default function DownloadQueue({ downloads, onClear }) {
   const statusIcon = (status) => {
     switch (status) {
@@ -144,6 +146,18 @@ export default function DownloadQueue({ downloads, onClear }) {
               }`}>
                 {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
               </span>
+            )}
+            {d.status === "done" && d.filename && (
+              <a
+                href={apiUrl(`/api/download-file/${d.job_id}`)}
+                download
+                className="w-6 h-6 rounded-full bg-brand-500/20 flex items-center justify-center flex-shrink-0 hover:bg-brand-500/40 transition-colors"
+                title="Save to Downloads"
+              >
+                <svg className="w-3.5 h-3.5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+                </svg>
+              </a>
             )}
             {d.status === "skipped" && (
               <span className="text-xs text-yellow-400 flex-shrink-0">DUP</span>

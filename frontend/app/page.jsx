@@ -34,6 +34,7 @@ export default function Home() {
   const wsRef = useRef(null);
   const pollRef = useRef(null);
   const reconnectRef = useRef(null);
+  const downloadedJobIds = useRef(new Set());
 
   // Load queue from localStorage on mount
   useEffect(() => {
@@ -61,6 +62,22 @@ export default function Home() {
     } catch {
       // ignore
     }
+  }, [downloads]);
+
+  // Auto-trigger browser download when a job completes
+  useEffect(() => {
+    downloads.forEach((d) => {
+      if (d.status === "done" && d.filename && !downloadedJobIds.current.has(d.job_id)) {
+        downloadedJobIds.current.add(d.job_id);
+        // Trigger browser download via hidden anchor
+        const a = document.createElement("a");
+        a.href = apiUrl(`/api/download-file/${d.job_id}`);
+        a.download = "";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    });
   }, [downloads]);
 
   // Load settings from server on mount
@@ -284,7 +301,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-[var(--border)] px-6 py-4">
         <div className="max-w-5xl mx-auto text-center text-xs text-[var(--text-secondary)]">
-          Downloads saved to ~/Downloads/DJ-Music
+          Downloads are saved directly to your browser&apos;s Downloads folder
         </div>
       </footer>
     </div>
