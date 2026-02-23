@@ -24,7 +24,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-tight">
-                YouTube MP3 Downloader
+                MP3 Downloader
               </h1>
               <p className="text-xs text-[var(--text-secondary)]">
                 DJ Edition

@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 
+const PLATFORMS = [
+  { value: "all", label: "All" },
+  { value: "youtube", label: "YouTube" },
+  { value: "soundcloud", label: "SoundCloud" },
+];
+
 export default function SearchTab({ onDownload }) {
   const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState("all");
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(false);
@@ -21,7 +28,7 @@ export default function SearchTab({ onDownload }) {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, max_results: 10 }),
+        body: JSON.stringify({ query, platform, max_results: 10 }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -85,8 +92,25 @@ export default function SearchTab({ onDownload }) {
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4">
         <h2 className="text-base font-semibold">Search for Music</h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          Describe what you're looking for in plain English
+          Describe what you're looking for in plain English — searches YouTube and SoundCloud
         </p>
+
+        {/* Platform Toggle */}
+        <div className="flex gap-1 p-1 rounded-lg bg-[var(--bg-secondary)] w-fit">
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => setPlatform(p.value)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                platform === p.value
+                  ? "bg-brand-600 text-white"
+                  : "text-[var(--text-secondary)] hover:text-white"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
 
         <div className="flex gap-3">
           <input
@@ -165,7 +189,16 @@ export default function SearchTab({ onDownload }) {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{r.title}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{r.title}</p>
+                    <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
+                      r.source === "soundcloud"
+                        ? "bg-orange-500/15 text-orange-400"
+                        : "bg-red-500/15 text-red-400"
+                    }`}>
+                      {r.source === "soundcloud" ? "SC" : "YT"}
+                    </span>
+                  </div>
                   <p className="text-xs text-[var(--text-secondary)]">
                     {r.channel} &middot; {r.duration}
                   </p>

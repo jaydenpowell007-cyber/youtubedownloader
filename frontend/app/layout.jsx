@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "YouTube MP3 Downloader — DJ Edition",
-  description: "Download YouTube videos and playlists as MP3 files for DJing",
+  title: "MP3 Downloader — DJ Edition",
+  description: "Download YouTube and SoundCloud tracks as MP3 files for DJing",
 };
 
 export default function RootLayout({ children }) {

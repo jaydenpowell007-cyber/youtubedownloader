@@ -1,4 +1,4 @@
-"""FastAPI backend for YouTube MP3 Downloader."""
+"""FastAPI backend for YouTube & SoundCloud MP3 Downloader."""
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -9,10 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.config import DOWNLOADS_DIR
-from backend.downloader import download, download_single, get_job_status, extract_info, is_playlist
-from backend.search import search_youtube
+from backend.downloader import (
+    download,
+    download_single,
+    get_job_status,
+    extract_info,
+    is_multi_track,
+    detect_source,
+)
+from backend.search import search
 
-app = FastAPI(title="YouTube MP3 Downloader", version="1.0.0")
+app = FastAPI(title="MP3 Downloader — DJ Edition", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +47,7 @@ class DownloadSelectedRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+    platform: str = "all"  # "youtube", "soundcloud", or "all"
     max_results: int = 10
 
 
@@ -50,6 +58,7 @@ class JobStatus(BaseModel):
     progress: float
     filename: Optional[str] = None
     error: Optional[str] = None
+    source: str = ""
 
 
 class SearchResultResponse(BaseModel):
@@ -58,6 +67,7 @@ class SearchResultResponse(BaseModel):
     duration: str
     channel: str
     thumbnail: str
+    source: str
 
 
 # --- Endpoints ---
@@ -70,7 +80,7 @@ def health():
 
 @app.post("/api/download", response_model=list[JobStatus])
 async def api_download(req: DownloadRequest):
-    """Download a YouTube URL (single video or playlist) as MP3."""
+    """Download a YouTube or SoundCloud URL (single track or playlist/set) as MP3."""
     loop = asyncio.get_event_loop()
     try:
         jobs = await loop.run_in_executor(
@@ -87,6 +97,7 @@ async def api_download(req: DownloadRequest):
             progress=j.progress,
             filename=j.filename,
             error=j.error,
+            source=j.source,
         )
         for j in jobs
     ]
@@ -94,15 +105,15 @@ async def api_download(req: DownloadRequest):
 
 @app.post("/api/download-selected", response_model=list[JobStatus])
 async def api_download_selected(req: DownloadSelectedRequest):
-    """Download multiple selected YouTube URLs as MP3."""
+    """Download multiple selected URLs as MP3."""
     loop = asyncio.get_event_loop()
     all_jobs = []
     for url in req.urls:
         try:
-            jobs = await loop.run_in_executor(
+            job = await loop.run_in_executor(
                 executor, lambda u=url: download_single(u, req.output_dir)
             )
-            all_jobs.append(jobs)
+            all_jobs.append(job)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed on {url}: {e}")
 
@@ -114,6 +125,7 @@ async def api_download_selected(req: DownloadSelectedRequest):
             progress=j.progress,
             filename=j.filename,
             error=j.error,
+            source=j.source,
         )
         for j in all_jobs
     ]
@@ -132,44 +144,50 @@ def api_job_status(job_id: str):
         progress=job.progress,
         filename=job.filename,
         error=job.error,
+        source=job.source,
     )
 
 
 @app.post("/api/info")
 async def api_info(req: DownloadRequest):
-    """Get metadata about a YouTube URL (title, playlist entries, etc.)."""
+    """Get metadata about a YouTube or SoundCloud URL."""
     loop = asyncio.get_event_loop()
     try:
         info = await loop.run_in_executor(executor, lambda: extract_info(req.url))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    playlist = is_playlist(req.url)
+    source = detect_source(req.url)
+    multi = is_multi_track(req.url)
     entries = []
-    if playlist:
+    if multi:
         for entry in info.get("entries", []):
+            entry_url = entry.get("url") or entry.get("webpage_url") or ""
+            if not entry_url and entry.get("id") and source == "youtube":
+                entry_url = f"https://www.youtube.com/watch?v={entry['id']}"
             entries.append({
                 "title": entry.get("title", "Unknown"),
-                "url": entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                "url": entry_url,
                 "duration": entry.get("duration"),
             })
 
     return {
         "title": info.get("title", "Unknown"),
-        "is_playlist": playlist,
-        "entry_count": len(entries) if playlist else 1,
+        "is_playlist": multi,
+        "entry_count": len(entries) if multi else 1,
         "entries": entries,
         "thumbnail": info.get("thumbnail", ""),
+        "source": source,
     }
 
 
 @app.post("/api/search", response_model=list[SearchResultResponse])
 async def api_search(req: SearchRequest):
-    """Search YouTube for music using natural language."""
+    """Search YouTube and/or SoundCloud for music using natural language."""
     loop = asyncio.get_event_loop()
     try:
         results = await loop.run_in_executor(
-            executor, lambda: search_youtube(req.query, req.max_results)
+            executor, lambda: search(req.query, req.platform, req.max_results)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -181,6 +199,7 @@ async def api_search(req: SearchRequest):
             duration=r.duration,
             channel=r.channel,
             thumbnail=r.thumbnail,
+            source=r.source,
         )
         for r in results
     ]

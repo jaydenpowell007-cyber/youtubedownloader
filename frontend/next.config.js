@@ -4,6 +4,8 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "i.ytimg.com" },
       { protocol: "https", hostname: "img.youtube.com" },
+      { protocol: "https", hostname: "i1.sndcdn.com" },
+      { protocol: "https", hostname: "**.sndcdn.com" },
     ],
   },
   async rewrites() {

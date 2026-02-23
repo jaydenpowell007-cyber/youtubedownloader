@@ -57,7 +57,18 @@ export default function DownloadQueue({ downloads, onClear }) {
           >
             {statusIcon(d.status)}
             <div className="flex-1 min-w-0">
-              <p className="text-sm truncate">{d.title || "Processing..."}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm truncate">{d.title || "Processing..."}</p>
+                {d.source && (
+                  <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
+                    d.source === "soundcloud"
+                      ? "bg-orange-500/15 text-orange-400"
+                      : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {d.source === "soundcloud" ? "SC" : "YT"}
+                  </span>
+                )}
+              </div>
               {d.error && (
                 <p className="text-xs text-red-400 truncate">{d.error}</p>
               )}

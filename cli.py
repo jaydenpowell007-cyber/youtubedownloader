@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""CLI for YouTube MP3 Downloader.
+"""CLI for MP3 Downloader — DJ Edition.
 
 Usage:
-    python cli.py download <url>            Download a video or playlist as MP3
+    python cli.py download <url>            Download a video/track or playlist/set as MP3
     python cli.py search <query>            Search for music and pick tracks to download
     python cli.py server                    Start the API server
 """
@@ -11,28 +11,38 @@ import argparse
 import sys
 
 from backend.config import DOWNLOADS_DIR
-from backend.downloader import download, download_single, is_playlist, extract_info
-from backend.search import search_youtube
+from backend.downloader import download, download_single, is_multi_track, extract_info, detect_source
+from backend.search import search
 
 
 def print_header():
     print()
     print("  ╔══════════════════════════════════════╗")
-    print("  ║       YouTube MP3 Downloader         ║")
-    print("  ║            DJ Edition                ║")
+    print("  ║        MP3 Downloader — DJ Edition   ║")
+    print("  ║      YouTube + SoundCloud            ║")
     print("  ╚══════════════════════════════════════╝")
     print()
 
 
+def _source_tag(source: str) -> str:
+    if source == "soundcloud":
+        return "[SC]"
+    if source == "youtube":
+        return "[YT]"
+    return ""
+
+
 def cmd_download(args):
-    """Download a YouTube URL as MP3."""
+    """Download a YouTube or SoundCloud URL as MP3."""
     url = args.url
     output = args.output or DOWNLOADS_DIR
+    source = detect_source(url)
 
-    print(f"  Output directory: {output}")
+    print(f"  Source:    {source or 'auto-detect'}")
+    print(f"  Output:   {output}")
     print()
 
-    if is_playlist(url):
+    if is_multi_track(url):
         info = extract_info(url)
         entries = info.get("entries", [])
         print(f"  Playlist: {info.get('title', 'Unknown')}")
@@ -45,10 +55,11 @@ def cmd_download(args):
     jobs = download(url, output)
 
     for job in jobs:
+        tag = _source_tag(job.source)
         if job.status == "done":
-            print(f"  [OK]    {job.title}")
+            print(f"  [OK]    {tag} {job.title}")
         else:
-            print(f"  [FAIL]  {job.title or 'Unknown'} — {job.error}")
+            print(f"  [FAIL]  {tag} {job.title or 'Unknown'} — {job.error}")
 
     done = sum(1 for j in jobs if j.status == "done")
     print()
@@ -58,21 +69,24 @@ def cmd_download(args):
 
 
 def cmd_search(args):
-    """Search YouTube for music and optionally download selected results."""
+    """Search for music and optionally download selected results."""
     query = args.query
+    platform = args.platform
     max_results = args.max_results
 
     print(f"  Searching: \"{query}\"")
+    print(f"  Platform:  {platform}")
     print()
 
-    results = search_youtube(query, max_results)
+    results = search(query, platform, max_results)
 
     if not results:
         print("  No results found.")
         return
 
     for i, r in enumerate(results, 1):
-        print(f"  [{i:2d}]  {r.title}")
+        tag = _source_tag(r.source)
+        print(f"  [{i:2d}]  {tag} {r.title}")
         print(f"        {r.channel}  •  {r.duration}")
         print()
 
@@ -110,10 +124,11 @@ def cmd_search(args):
 
     for r in selected:
         job = download_single(r.url, output)
+        tag = _source_tag(r.source)
         if job.status == "done":
-            print(f"  [OK]    {job.title}")
+            print(f"  [OK]    {tag} {job.title}")
         else:
-            print(f"  [FAIL]  {r.title} — {job.error}")
+            print(f"  [FAIL]  {tag} {r.title} — {job.error}")
 
     print()
     print("  Done!")
@@ -135,22 +150,28 @@ def cmd_server(args):
 def main():
     print_header()
 
-    parser = argparse.ArgumentParser(description="YouTube MP3 Downloader — DJ Edition")
+    parser = argparse.ArgumentParser(description="MP3 Downloader — DJ Edition (YouTube + SoundCloud)")
     subparsers = parser.add_subparsers(dest="command")
 
     # download
-    dl = subparsers.add_parser("download", aliases=["dl"], help="Download a YouTube URL as MP3")
-    dl.add_argument("url", help="YouTube video or playlist URL")
+    dl = subparsers.add_parser("download", aliases=["dl"], help="Download a URL as MP3")
+    dl.add_argument("url", help="YouTube or SoundCloud URL (video, track, playlist, set)")
     dl.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
     dl.set_defaults(func=cmd_download)
 
     # search
     s = subparsers.add_parser("search", aliases=["s"], help="Search for music and download")
     s.add_argument("query", nargs="+", help="Natural language search query")
-    s.add_argument("-n", "--max-results", type=int, default=10, help="Max results (default: 10)")
+    s.add_argument("-n", "--max-results", type=int, default=10, help="Max results per platform (default: 10)")
+    s.add_argument(
+        "-p", "--platform",
+        choices=["all", "youtube", "soundcloud"],
+        default="all",
+        help="Platform to search (default: all)",
+    )
     s.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
     s.set_defaults(func=lambda a: cmd_search(argparse.Namespace(
-        query=" ".join(a.query), max_results=a.max_results, output=a.output
+        query=" ".join(a.query), max_results=a.max_results, platform=a.platform, output=a.output
     )))
 
     # server

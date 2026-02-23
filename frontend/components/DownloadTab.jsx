@@ -61,9 +61,9 @@ export default function DownloadTab({ onDownload }) {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4">
-        <h2 className="text-base font-semibold">Paste a YouTube Link</h2>
+        <h2 className="text-base font-semibold">Paste a Link</h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          Works with individual videos and full playlists
+          Works with YouTube and SoundCloud — individual tracks, playlists, and sets
         </p>
 
         <div className="flex gap-3">
@@ -72,7 +72,7 @@ export default function DownloadTab({ onDownload }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
-            placeholder="https://youtube.com/watch?v=... or playlist URL"
+            placeholder="YouTube or SoundCloud URL (videos, playlists, sets)"
             className="flex-1 px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-colors"
           />
           <button
@@ -103,10 +103,21 @@ export default function DownloadTab({ onDownload }) {
               />
             )}
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold truncate">{info.title}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold truncate">{info.title}</h3>
+                {info.source && (
+                  <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
+                    info.source === "soundcloud"
+                      ? "bg-orange-500/15 text-orange-400"
+                      : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {info.source === "soundcloud" ? "SC" : "YT"}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-[var(--text-secondary)] mt-1">
                 {info.is_playlist
-                  ? `Playlist — ${info.entry_count} tracks`
+                  ? `${info.entry_count} tracks`
                   : "Single track"}
               </p>
             </div>
