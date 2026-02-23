@@ -18,8 +18,9 @@ from backend.downloader import (
     detect_source,
 )
 from backend.search import search
+from backend.spotify import get_playlist_tracks
 
-app = FastAPI(title="MP3 Downloader — DJ Edition", version="2.0.0")
+app = FastAPI(title="MP3 Downloader — DJ Edition", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,8 +48,14 @@ class DownloadSelectedRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    platform: str = "all"  # "youtube", "soundcloud", or "all"
+    platform: str = "all"
     max_results: int = 10
+
+
+class SpotifyImportRequest(BaseModel):
+    url: str
+    platform: str = "youtube"  # which platform to search for tracks on
+    output_dir: Optional[str] = None
 
 
 class JobStatus(BaseModel):
@@ -59,6 +66,9 @@ class JobStatus(BaseModel):
     filename: Optional[str] = None
     error: Optional[str] = None
     source: str = ""
+    bpm: Optional[int] = None
+    key: Optional[str] = None
+    camelot: Optional[str] = None
 
 
 class SearchResultResponse(BaseModel):
@@ -68,6 +78,29 @@ class SearchResultResponse(BaseModel):
     channel: str
     thumbnail: str
     source: str
+
+
+class SpotifyTrackResponse(BaseModel):
+    title: str
+    artist: str
+    album: str
+    duration_ms: int
+    search_query: str
+
+
+def _job_to_status(j) -> JobStatus:
+    return JobStatus(
+        job_id=j.job_id,
+        status=j.status,
+        title=j.title,
+        progress=j.progress,
+        filename=j.filename,
+        error=j.error,
+        source=j.source,
+        bpm=j.bpm,
+        key=j.key,
+        camelot=j.camelot,
+    )
 
 
 # --- Endpoints ---
@@ -88,19 +121,7 @@ async def api_download(req: DownloadRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    return [
-        JobStatus(
-            job_id=j.job_id,
-            status=j.status,
-            title=j.title,
-            progress=j.progress,
-            filename=j.filename,
-            error=j.error,
-            source=j.source,
-        )
-        for j in jobs
-    ]
+    return [_job_to_status(j) for j in jobs]
 
 
 @app.post("/api/download-selected", response_model=list[JobStatus])
@@ -116,19 +137,7 @@ async def api_download_selected(req: DownloadSelectedRequest):
             all_jobs.append(job)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed on {url}: {e}")
-
-    return [
-        JobStatus(
-            job_id=j.job_id,
-            status=j.status,
-            title=j.title,
-            progress=j.progress,
-            filename=j.filename,
-            error=j.error,
-            source=j.source,
-        )
-        for j in all_jobs
-    ]
+    return [_job_to_status(j) for j in all_jobs]
 
 
 @app.get("/api/job/{job_id}", response_model=JobStatus)
@@ -137,15 +146,7 @@ def api_job_status(job_id: str):
     job = get_job_status(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return JobStatus(
-        job_id=job.job_id,
-        status=job.status,
-        title=job.title,
-        progress=job.progress,
-        filename=job.filename,
-        error=job.error,
-        source=job.source,
-    )
+    return _job_to_status(job)
 
 
 @app.post("/api/info")
@@ -194,15 +195,67 @@ async def api_search(req: SearchRequest):
 
     return [
         SearchResultResponse(
-            title=r.title,
-            url=r.url,
-            duration=r.duration,
-            channel=r.channel,
-            thumbnail=r.thumbnail,
-            source=r.source,
+            title=r.title, url=r.url, duration=r.duration,
+            channel=r.channel, thumbnail=r.thumbnail, source=r.source,
         )
         for r in results
     ]
+
+
+# --- Spotify Import ---
+
+
+@app.post("/api/spotify/tracks", response_model=list[SpotifyTrackResponse])
+async def api_spotify_tracks(req: SpotifyImportRequest):
+    """Fetch track listing from a Spotify playlist (no download yet)."""
+    loop = asyncio.get_event_loop()
+    try:
+        name, tracks = await loop.run_in_executor(
+            executor, lambda: get_playlist_tracks(req.url)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return [
+        SpotifyTrackResponse(
+            title=t.title, artist=t.artist, album=t.album,
+            duration_ms=t.duration_ms, search_query=t.search_query,
+        )
+        for t in tracks
+    ]
+
+
+@app.post("/api/spotify/download", response_model=list[JobStatus])
+async def api_spotify_download(req: SpotifyImportRequest):
+    """Import a Spotify playlist: fetch tracks, search on YouTube/SC, download as MP3."""
+    loop = asyncio.get_event_loop()
+
+    # 1. Get Spotify track list
+    try:
+        name, tracks = await loop.run_in_executor(
+            executor, lambda: get_playlist_tracks(req.url)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Spotify error: {e}")
+
+    # 2. For each track, search and download the top result
+    all_jobs = []
+    for track in tracks:
+        try:
+            results = await loop.run_in_executor(
+                executor,
+                lambda q=track.search_query: search(q, req.platform, 1),
+            )
+            if results:
+                job = await loop.run_in_executor(
+                    executor,
+                    lambda u=results[0].url: download_single(u, req.output_dir),
+                )
+                all_jobs.append(job)
+        except Exception:
+            continue  # Skip tracks that fail
+
+    return [_job_to_status(j) for j in all_jobs]
 
 
 if __name__ == "__main__":

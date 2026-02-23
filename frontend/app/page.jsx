@@ -3,7 +3,14 @@
 import { useState } from "react";
 import DownloadTab from "../components/DownloadTab";
 import SearchTab from "../components/SearchTab";
+import SpotifyTab from "../components/SpotifyTab";
 import DownloadQueue from "../components/DownloadQueue";
+
+const TABS = [
+  { id: "download", label: "Download Link" },
+  { id: "search", label: "Search Music" },
+  { id: "spotify", label: "Spotify Import" },
+];
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("download");
@@ -39,34 +46,31 @@ export default function Home() {
         <div className="max-w-5xl mx-auto space-y-8">
           {/* Tabs */}
           <div className="flex gap-1 p-1 rounded-xl bg-[var(--bg-secondary)] w-fit">
-            <button
-              onClick={() => setActiveTab("download")}
-              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === "download"
-                  ? "bg-brand-600 text-white shadow-lg"
-                  : "text-[var(--text-secondary)] hover:text-white"
-              }`}
-            >
-              Download Link
-            </button>
-            <button
-              onClick={() => setActiveTab("search")}
-              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === "search"
-                  ? "bg-brand-600 text-white shadow-lg"
-                  : "text-[var(--text-secondary)] hover:text-white"
-              }`}
-            >
-              Search Music
-            </button>
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === tab.id
+                    ? "bg-brand-600 text-white shadow-lg"
+                    : "text-[var(--text-secondary)] hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {/* Active Tab Content */}
-          <div className="animate-slide-up">
-            {activeTab === "download" ? (
+          <div className="animate-slide-up" key={activeTab}>
+            {activeTab === "download" && (
               <DownloadTab onDownload={addDownloads} />
-            ) : (
+            )}
+            {activeTab === "search" && (
               <SearchTab onDownload={addDownloads} />
+            )}
+            {activeTab === "spotify" && (
+              <SpotifyTab onDownload={addDownloads} />
             )}
           </div>
 

@@ -15,12 +15,15 @@ from backend.config import DOWNLOADS_DIR, MAX_PLAYLIST_SIZE
 @dataclass
 class DownloadProgress:
     job_id: str
-    status: str = "queued"  # queued | downloading | converting | done | error
+    status: str = "queued"  # queued | downloading | converting | analyzing | done | error
     title: str = ""
     progress: float = 0.0
     filename: Optional[str] = None
     error: Optional[str] = None
     source: str = ""  # youtube | soundcloud | unknown
+    bpm: Optional[int] = None
+    key: Optional[str] = None
+    camelot: Optional[str] = None
 
 
 # In-memory job tracker (keyed by job_id)
@@ -138,6 +141,38 @@ def download_single(url: str, output_dir: Optional[str] = None) -> DownloadProgr
             info = ydl.extract_info(url, download=True)
             job.title = info.get("title", "Unknown")
             job.filename = os.path.join(dest, f"{info.get('title', 'Unknown')}.mp3")
+
+            # --- Post-download: analyze & tag ---
+            if job.filename and os.path.exists(job.filename):
+                job.status = "analyzing"
+                _set_job(job)
+
+                from backend.analysis import analyze_file
+                from backend.tagger import tag_mp3, extract_artist_title
+
+                # BPM & key detection
+                analysis = analyze_file(job.filename)
+                job.bpm = analysis.get("bpm")
+                job.key = analysis.get("key")
+                job.camelot = analysis.get("camelot")
+
+                # Extract artist/title from the video title
+                artist, title = extract_artist_title(info.get("title", ""))
+                thumbnail = info.get("thumbnail", "")
+
+                # Write ID3 tags
+                tag_mp3(
+                    filepath=job.filename,
+                    title=title or info.get("title", ""),
+                    artist=artist or info.get("channel", info.get("uploader", "")),
+                    album=info.get("album", ""),
+                    genre=info.get("genre", ""),
+                    bpm=job.bpm,
+                    key=job.key,
+                    camelot=job.camelot,
+                    thumbnail_url=thumbnail,
+                )
+
             job.status = "done"
             job.progress = 100.0
     except Exception as e:

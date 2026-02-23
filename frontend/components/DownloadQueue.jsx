@@ -72,7 +72,21 @@ export default function DownloadQueue({ downloads, onClear }) {
               {d.error && (
                 <p className="text-xs text-red-400 truncate">{d.error}</p>
               )}
+              {d.status === "analyzing" && (
+                <p className="text-xs text-brand-400">Analyzing BPM & key...</p>
+              )}
             </div>
+            {/* BPM / Key / Camelot badges */}
+            {d.status === "done" && d.bpm && (
+              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 flex-shrink-0">
+                {d.bpm} BPM
+              </span>
+            )}
+            {d.status === "done" && d.camelot && (
+              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
+                {d.camelot}
+              </span>
+            )}
             {d.status === "done" && (
               <span className="text-xs text-green-400 flex-shrink-0">MP3</span>
             )}
