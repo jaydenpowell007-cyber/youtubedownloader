@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { apiUrl } from "../lib/api";
 
 export default function HistoryTab() {
   const [entries, setEntries] = useState([]);
@@ -16,7 +17,7 @@ export default function HistoryTab() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/history", {
+      const res = await fetch(apiUrl("/api/history"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit, offset, search: query }),
@@ -53,7 +54,7 @@ export default function HistoryTab() {
     setExporting(true);
     setError("");
     try {
-      const res = await fetch("/api/export/rekordbox");
+      const res = await fetch(apiUrl("/api/export/rekordbox"));
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail || "Export failed");

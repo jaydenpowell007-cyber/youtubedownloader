@@ -34,7 +34,7 @@ from backend import settings as user_settings
 
 app = FastAPI(title="MP3 Downloader — DJ Edition", version="5.0.0")
 
-# CORS: configurable via env, defaults to localhost dev
+# CORS: configurable via env, defaults to localhost dev + known Vercel domains
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000,"
@@ -43,9 +43,16 @@ _cors_origins = os.environ.get(
     "https://youtubedownloader-d191lwvaa-jaydens-projects-b3bceb91.vercel.app",
 ).split(",")
 
+# Regex to match all Vercel preview deployments for this project
+_cors_origin_regex = os.environ.get(
+    "CORS_ORIGIN_REGEX",
+    r"https://youtubedownloader[\w-]*\.vercel\.app",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_origins],
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

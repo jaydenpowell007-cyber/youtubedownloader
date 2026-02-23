@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import QualitySelector from "./QualitySelector";
+import { apiUrl } from "../lib/api";
 
 export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
   const [url, setUrl] = useState("");
@@ -22,7 +23,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
     setMatchResults(null);
 
     try {
-      const res = await fetch("/api/spotify/tracks", {
+      const res = await fetch(apiUrl("/api/spotify/tracks"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
@@ -70,7 +71,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
     }));
 
     try {
-      const res = await fetch("/api/spotify/match", {
+      const res = await fetch(apiUrl("/api/spotify/match"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -145,7 +146,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
           return;
         }
 
-        const res = await fetch("/api/spotify/download-matched", {
+        const res = await fetch(apiUrl("/api/spotify/download-matched"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ items, quality }),
@@ -161,7 +162,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
         const selectedTracks = [...selected].map((i) => tracks[i]);
         for (const track of selectedTracks) {
           try {
-            const searchRes = await fetch("/api/search", {
+            const searchRes = await fetch(apiUrl("/api/search"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -174,7 +175,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
             const results = await searchRes.json();
             if (results.length === 0) continue;
 
-            const dlRes = await fetch("/api/spotify/download-matched", {
+            const dlRes = await fetch(apiUrl("/api/spotify/download-matched"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

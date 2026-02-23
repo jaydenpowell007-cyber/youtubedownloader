@@ -7,6 +7,7 @@ import SpotifyTab from "../components/SpotifyTab";
 import HistoryTab from "../components/HistoryTab";
 import SettingsTab from "../components/SettingsTab";
 import DownloadQueue from "../components/DownloadQueue";
+import { apiUrl, wsUrl } from "../lib/api";
 
 const TABS = [
   { id: "download", label: "Download Link" },
@@ -66,7 +67,7 @@ export default function Home() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const res = await fetch("/api/settings");
+        const res = await fetch(apiUrl("/api/settings"));
         if (res.ok) {
           const data = await res.json();
           setSettings(data);
@@ -99,8 +100,7 @@ export default function Home() {
   const connectWebSocket = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/progress`);
+    const ws = new WebSocket(wsUrl("/ws/progress"));
 
     ws.onmessage = (event) => {
       try {
@@ -157,7 +157,7 @@ export default function Home() {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
     try {
-      const res = await fetch("/api/jobs/poll", {
+      const res = await fetch(apiUrl("/api/jobs/poll"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_ids: activeIds }),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { apiUrl } from "../lib/api";
 
 const FILENAME_PRESETS = [
   { value: "{artist} - {title}", label: "Artist - Title", example: "Drake - God's Plan" },
@@ -32,7 +33,7 @@ export default function SettingsTab({ settings, onSettingsChange }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/settings", {
+      const res = await fetch(apiUrl("/api/settings"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: localSettings }),
