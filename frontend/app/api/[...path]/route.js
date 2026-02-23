@@ -61,7 +61,18 @@ async function proxyRequest(request, { params }) {
     if (ct) headers["content-type"] = ct;
   }
 
-  const upstream = await fetch(url, fetchInit);
+  let upstream;
+  try {
+    upstream = await fetch(url, fetchInit);
+  } catch (err) {
+    return Response.json(
+      {
+        error: "Backend unreachable",
+        detail: `Could not connect to ${BACKEND} — ${err.message}`,
+      },
+      { status: 502 },
+    );
+  }
 
   // Build response headers, skipping problematic ones
   const responseHeaders = new Headers();
