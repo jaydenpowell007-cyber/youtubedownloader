@@ -58,7 +58,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-executor = ThreadPoolExecutor(max_workers=4)
+# Separate executors so downloads don't block search/metadata operations
+executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
+search_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="api-search")
 
 
 # --- Request / Response models ---
@@ -414,7 +416,7 @@ async def api_search(req: SearchRequest):
     loop = asyncio.get_event_loop()
     try:
         response = await loop.run_in_executor(
-            executor, lambda: search(req.query, req.platform, req.max_results)
+            search_executor, lambda: search(req.query, req.platform, req.max_results)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -442,7 +444,7 @@ async def api_spotify_tracks(req: SpotifyImportRequest):
     loop = asyncio.get_event_loop()
     try:
         name, tracks = await loop.run_in_executor(
-            executor, lambda: get_playlist_tracks(req.url)
+            search_executor, lambda: get_playlist_tracks(req.url)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -461,21 +463,18 @@ async def api_spotify_tracks(req: SpotifyImportRequest):
 async def api_spotify_match(req: SpotifyMatchRequest):
     """Find YouTube/SoundCloud matches for Spotify tracks.
 
+    Searches all tracks in parallel for much faster results.
     Returns a list of {spotify_track, matches: [{title, url, duration, channel, thumbnail, source}]}
     """
     loop = asyncio.get_event_loop()
-    results = []
 
-    for track_data in req.tracks:
+    def _search_one(track_data: dict) -> dict:
         query = track_data.get("search_query", "")
         if not query:
-            continue
-
+            return {"spotify_track": track_data, "matches": []}
         try:
-            matches = await loop.run_in_executor(
-                executor, lambda q=query: search(q, req.platform, req.max_results)
-            )
-            results.append({
+            response = search(query, req.platform, req.max_results)
+            return {
                 "spotify_track": track_data,
                 "matches": [
                     {
@@ -486,16 +485,20 @@ async def api_spotify_match(req: SpotifyMatchRequest):
                         "thumbnail": m.thumbnail,
                         "source": m.source,
                     }
-                    for m in matches
+                    for m in response.results
                 ],
-            })
+            }
         except Exception:
-            results.append({
-                "spotify_track": track_data,
-                "matches": [],
-            })
+            return {"spotify_track": track_data, "matches": []}
 
-    return results
+    # Run all track searches in parallel
+    futures = [
+        loop.run_in_executor(search_executor, _search_one, track_data)
+        for track_data in req.tracks
+    ]
+    results = await asyncio.gather(*futures)
+
+    return list(results)
 
 
 @app.post("/api/spotify/download-matched", response_model=list[JobStatus])
@@ -525,19 +528,19 @@ async def api_spotify_download(req: SpotifyImportRequest):
 
     try:
         name, tracks = await loop.run_in_executor(
-            executor, lambda: get_playlist_tracks(req.url)
+            search_executor, lambda: get_playlist_tracks(req.url)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Spotify error: {e}")
 
-    all_jobs = []
-    for track in tracks:
+    # Search all tracks in parallel for speed
+    async def _search_and_download(track):
         try:
-            results = await loop.run_in_executor(
-                executor,
+            response = await loop.run_in_executor(
+                search_executor,
                 lambda q=track.search_query: search(q, req.platform, 1),
             )
-            if results:
+            if response.results:
                 spotify_meta = {
                     "title": track.title,
                     "artist": track.artist,
@@ -545,18 +548,19 @@ async def api_spotify_download(req: SpotifyImportRequest):
                     "album_art": track.album_art,
                     "year": track.release_year,
                 }
-                job = await loop.run_in_executor(
-                    executor,
-                    lambda u=results[0].url, sm=spotify_meta: download_single(
-                        u, req.output_dir,
-                        filename_template=ds["filename_template"],
-                        normalize=ds["normalize"],
-                        spotify_meta=sm,
-                    ),
+                job = start_download_single(
+                    response.results[0].url, req.output_dir,
+                    filename_template=ds["filename_template"],
+                    normalize=ds["normalize"],
+                    spotify_meta=spotify_meta,
                 )
-                all_jobs.append(job)
+                return job
         except Exception:
-            continue
+            pass
+        return None
+
+    jobs = await asyncio.gather(*[_search_and_download(t) for t in tracks])
+    all_jobs = [j for j in jobs if j is not None]
 
     return [_job_to_status(j) for j in all_jobs]
 

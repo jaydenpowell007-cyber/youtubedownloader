@@ -1,6 +1,7 @@
 """Spotify playlist import — extracts track listings without an API key."""
 
 import re
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -30,23 +31,64 @@ def parse_playlist_id(url: str) -> str:
     return match.group(1)
 
 
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
+
+# Token cache to avoid re-fetching on every request
+_token_cache: dict = {"token": None, "expires": 0}
+
+
 def _get_anonymous_token() -> str:
-    """Get an anonymous Spotify access token (no API key needed)."""
-    resp = httpx.get(
-        "https://open.spotify.com/get_access_token",
-        params={"reason": "transport", "productType": "web_player"},
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/120.0.0.0 Safari/537.36",
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    """Get an anonymous Spotify access token by establishing a session first.
+
+    Spotify blocks direct requests to /get_access_token without valid session
+    cookies. This establishes a session by visiting the homepage first.
+    """
+    # Return cached token if still valid
+    if _token_cache["token"] and time.time() < _token_cache["expires"]:
+        return _token_cache["token"]
+
+    # Use a session to persist cookies across requests
+    with httpx.Client(follow_redirects=True, timeout=20) as client:
+        # Step 1: Visit Spotify homepage to establish session cookies
+        client.get("https://open.spotify.com/", headers=_BROWSER_HEADERS)
+
+        # Step 2: Request token with session cookies now set
+        resp = client.get(
+            "https://open.spotify.com/get_access_token",
+            params={"reason": "transport", "productType": "web_player"},
+            headers={
+                **_BROWSER_HEADERS,
+                "Accept": "application/json",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+                "Referer": "https://open.spotify.com/",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
     token = data.get("accessToken")
     if not token:
         raise RuntimeError("Failed to get Spotify anonymous token")
+
+    # Cache token (expires in ~1 hour, use 50 min to be safe)
+    expires_ms = data.get("accessTokenExpirationTimestampMs", 0)
+    if expires_ms:
+        _token_cache["expires"] = expires_ms / 1000 - 60
+    else:
+        _token_cache["expires"] = time.time() + 3000
+    _token_cache["token"] = token
+
     return token
 
 

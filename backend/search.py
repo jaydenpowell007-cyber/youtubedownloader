@@ -1,10 +1,14 @@
 """Natural language music search via YouTube and SoundCloud."""
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Optional
 
 import yt_dlp
+
+# Dedicated thread pool for search operations (separate from download pool)
+_search_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="search")
 
 
 @dataclass
@@ -95,7 +99,7 @@ def search_youtube(query: str, max_results: int = 10) -> list[SearchResult]:
     opts = {
         "quiet": True,
         "no_warnings": True,
-        "extract_flat": False,
+        "extract_flat": "in_playlist",
         "skip_download": True,
     }
 
@@ -108,10 +112,10 @@ def search_youtube(query: str, max_results: int = 10) -> list[SearchResult]:
             results.append(
                 SearchResult(
                     title=entry.get("title", "Unknown"),
-                    url=f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                    url=entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
                     duration=_format_duration(entry.get("duration", 0)),
                     channel=entry.get("channel", entry.get("uploader", "Unknown")),
-                    thumbnail=entry.get("thumbnail", ""),
+                    thumbnail=entry.get("thumbnail", entry.get("thumbnails", [{}])[-1].get("url", "")),
                     source="youtube",
                 )
             )
@@ -126,7 +130,7 @@ def search_soundcloud(query: str, max_results: int = 10) -> list[SearchResult]:
     opts = {
         "quiet": True,
         "no_warnings": True,
-        "extract_flat": False,
+        "extract_flat": "in_playlist",
         "skip_download": True,
     }
 
@@ -142,7 +146,7 @@ def search_soundcloud(query: str, max_results: int = 10) -> list[SearchResult]:
                     url=entry.get("webpage_url", entry.get("url", "")),
                     duration=_format_duration(entry.get("duration", 0)),
                     channel=entry.get("uploader", "Unknown"),
-                    thumbnail=entry.get("thumbnail", ""),
+                    thumbnail=entry.get("thumbnail", entry.get("thumbnails", [{}])[-1].get("url", "")),
                     source="soundcloud",
                 )
             )
@@ -171,9 +175,12 @@ def search(query: str, platform: str = "all", max_results: int = 10) -> SearchRe
     elif platform == "soundcloud":
         results = search_soundcloud(effective_query, max_results)
     else:
-        # "all" — search both, interleave results
-        yt_results = search_youtube(effective_query, max_results)
-        sc_results = search_soundcloud(effective_query, max_results)
+        # "all" — search both platforms in parallel for speed
+        yt_future = _search_executor.submit(search_youtube, effective_query, max_results)
+        sc_future = _search_executor.submit(search_soundcloud, effective_query, max_results)
+
+        yt_results = yt_future.result()
+        sc_results = sc_future.result()
 
         # Interleave: alternate YouTube and SoundCloud results
         results = []
