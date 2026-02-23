@@ -5,6 +5,8 @@ Usage:
     python cli.py download <url>            Download a video/track or playlist/set as MP3
     python cli.py search <query>            Search for music and pick tracks to download
     python cli.py spotify <playlist_url>    Import a Spotify playlist
+    python cli.py history                   View download history
+    python cli.py export                    Export library as Rekordbox XML
     python cli.py server                    Start the API server
 """
 
@@ -44,8 +46,12 @@ def _print_job_result(job):
             extras.append(job.camelot)
         if job.key:
             extras.append(job.key)
+        if job.normalized:
+            extras.append("normalized")
         extra_str = f"  ({', '.join(extras)})" if extras else ""
         print(f"  [OK]    {tag} {job.title}{extra_str}")
+    elif job.status == "skipped":
+        print(f"  [SKIP]  {tag} {job.title} — {job.skipped_reason or 'duplicate'}")
     else:
         print(f"  [FAIL]  {tag} {job.title or 'Unknown'} — {job.error}")
 
@@ -76,8 +82,11 @@ def cmd_download(args):
         _print_job_result(job)
 
     done = sum(1 for j in jobs if j.status == "done")
+    skipped = sum(1 for j in jobs if j.status == "skipped")
     print()
     print(f"  Completed: {done}/{len(jobs)} tracks")
+    if skipped:
+        print(f"  Skipped:   {skipped} (duplicates)")
     print(f"  Saved to:  {output}")
     print()
 
@@ -218,6 +227,54 @@ def cmd_spotify(args):
     print()
 
 
+def cmd_history(args):
+    """View download history."""
+    from backend.history import get_history, get_history_count
+
+    query = args.search or ""
+    total = get_history_count(query)
+    entries = get_history(limit=args.limit, search_query=query)
+
+    if query:
+        print(f"  Search: \"{query}\"")
+    print(f"  Total: {total} track(s)")
+    print()
+
+    if not entries:
+        print("  No downloads yet.")
+        return
+
+    for e in entries:
+        extras = []
+        if e.bpm:
+            extras.append(f"{e.bpm} BPM")
+        if e.camelot:
+            extras.append(e.camelot)
+        if e.key:
+            extras.append(e.key)
+        if e.normalized:
+            extras.append("normalized")
+        extra_str = f"  ({', '.join(extras)})" if extras else ""
+
+        source_tag = _source_tag(e.source)
+        print(f"  {source_tag} {e.title}{extra_str}")
+        print(f"        {e.artist or 'Unknown artist'}  •  {e.downloaded_at}")
+        print()
+
+
+def cmd_export(args):
+    """Export library as Rekordbox XML."""
+    from backend.rekordbox import generate_rekordbox_xml
+
+    output = args.output or ""
+    print("  Generating Rekordbox XML...")
+    filepath = generate_rekordbox_xml(output)
+    print(f"  Exported to: {filepath}")
+    print()
+    print("  To import: Rekordbox > File > Import Collection > select the XML file")
+    print()
+
+
 def cmd_server(args):
     """Start the FastAPI server."""
     import uvicorn
@@ -268,6 +325,17 @@ def main():
     )
     sp.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
     sp.set_defaults(func=cmd_spotify)
+
+    # history
+    h = subparsers.add_parser("history", aliases=["h"], help="View download history")
+    h.add_argument("-s", "--search", default="", help="Search by title or artist")
+    h.add_argument("-n", "--limit", type=int, default=50, help="Max entries to show (default: 50)")
+    h.set_defaults(func=cmd_history)
+
+    # export
+    ex = subparsers.add_parser("export", aliases=["ex"], help="Export library as Rekordbox XML")
+    ex.add_argument("-o", "--output", default="", help="Output path (default: ~/Downloads/DJ-Music/rekordbox_collection.xml)")
+    ex.set_defaults(func=cmd_export)
 
     # server
     srv = subparsers.add_parser("server", help="Start the API server")

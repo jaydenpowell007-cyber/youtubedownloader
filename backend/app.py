@@ -1,11 +1,13 @@
 """FastAPI backend for YouTube & SoundCloud MP3 Downloader."""
 
 import asyncio
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.config import DOWNLOADS_DIR
@@ -19,12 +21,19 @@ from backend.downloader import (
 )
 from backend.search import search
 from backend.spotify import get_playlist_tracks
+from backend.history import get_history, get_history_count, delete_entry
+from backend.rekordbox import generate_rekordbox_xml
 
-app = FastAPI(title="MP3 Downloader — DJ Edition", version="3.0.0")
+app = FastAPI(title="MP3 Downloader — DJ Edition", version="4.0.0")
+
+# CORS: configurable via env, defaults to localhost dev
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,6 +50,11 @@ class DownloadRequest(BaseModel):
     output_dir: Optional[str] = None
 
 
+class BatchDownloadRequest(BaseModel):
+    urls: list[str]
+    output_dir: Optional[str] = None
+
+
 class DownloadSelectedRequest(BaseModel):
     urls: list[str]
     output_dir: Optional[str] = None
@@ -54,8 +68,14 @@ class SearchRequest(BaseModel):
 
 class SpotifyImportRequest(BaseModel):
     url: str
-    platform: str = "youtube"  # which platform to search for tracks on
+    platform: str = "youtube"
     output_dir: Optional[str] = None
+
+
+class HistoryRequest(BaseModel):
+    limit: int = 100
+    offset: int = 0
+    search: str = ""
 
 
 class JobStatus(BaseModel):
@@ -69,6 +89,8 @@ class JobStatus(BaseModel):
     bpm: Optional[int] = None
     key: Optional[str] = None
     camelot: Optional[str] = None
+    normalized: bool = False
+    skipped_reason: Optional[str] = None
 
 
 class SearchResultResponse(BaseModel):
@@ -88,6 +110,25 @@ class SpotifyTrackResponse(BaseModel):
     search_query: str
 
 
+class HistoryEntryResponse(BaseModel):
+    id: int
+    url: str
+    title: str
+    artist: str
+    filename: str
+    source: str
+    bpm: Optional[int] = None
+    key: Optional[str] = None
+    camelot: Optional[str] = None
+    downloaded_at: str
+    normalized: bool
+
+
+class HistoryResponse(BaseModel):
+    entries: list[HistoryEntryResponse]
+    total: int
+
+
 def _job_to_status(j) -> JobStatus:
     return JobStatus(
         job_id=j.job_id,
@@ -100,6 +141,8 @@ def _job_to_status(j) -> JobStatus:
         bpm=j.bpm,
         key=j.key,
         camelot=j.camelot,
+        normalized=getattr(j, "normalized", False),
+        skipped_reason=getattr(j, "skipped_reason", None),
     )
 
 
@@ -256,6 +299,94 @@ async def api_spotify_download(req: SpotifyImportRequest):
             continue  # Skip tracks that fail
 
     return [_job_to_status(j) for j in all_jobs]
+
+
+# --- Batch Download ---
+
+
+@app.post("/api/download-batch", response_model=list[JobStatus])
+async def api_download_batch(req: BatchDownloadRequest):
+    """Download multiple URLs as MP3 — each URL auto-detects single vs playlist."""
+    loop = asyncio.get_event_loop()
+    all_jobs = []
+    for url in req.urls:
+        url = url.strip()
+        if not url:
+            continue
+        try:
+            jobs = await loop.run_in_executor(
+                executor, lambda u=url: download(u, req.output_dir)
+            )
+            all_jobs.extend(jobs)
+        except Exception:
+            continue  # Skip URLs that fail entirely
+    return [_job_to_status(j) for j in all_jobs]
+
+
+# --- Download History ---
+
+
+@app.post("/api/history", response_model=HistoryResponse)
+async def api_history(req: HistoryRequest):
+    """Get download history with optional search."""
+    loop = asyncio.get_event_loop()
+    entries = await loop.run_in_executor(
+        executor,
+        lambda: get_history(req.limit, req.offset, req.search),
+    )
+    total = await loop.run_in_executor(
+        executor,
+        lambda: get_history_count(req.search),
+    )
+    return HistoryResponse(
+        entries=[
+            HistoryEntryResponse(
+                id=e.id,
+                url=e.url,
+                title=e.title,
+                artist=e.artist,
+                filename=e.filename,
+                source=e.source,
+                bpm=e.bpm,
+                key=e.key,
+                camelot=e.camelot,
+                downloaded_at=e.downloaded_at,
+                normalized=e.normalized,
+            )
+            for e in entries
+        ],
+        total=total,
+    )
+
+
+@app.delete("/api/history/{entry_id}")
+async def api_history_delete(entry_id: int):
+    """Delete a history entry."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, lambda: delete_entry(entry_id))
+    return {"status": "ok"}
+
+
+# --- Rekordbox Export ---
+
+
+@app.get("/api/export/rekordbox")
+async def api_export_rekordbox():
+    """Generate and download a Rekordbox-compatible XML collection file."""
+    loop = asyncio.get_event_loop()
+    try:
+        filepath = await loop.run_in_executor(executor, generate_rekordbox_xml)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {e}")
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=500, detail="Export file not created")
+
+    return FileResponse(
+        filepath,
+        media_type="application/xml",
+        filename="rekordbox_collection.xml",
+    )
 
 
 if __name__ == "__main__":

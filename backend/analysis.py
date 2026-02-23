@@ -4,37 +4,7 @@ import numpy as np
 
 # Camelot wheel mapping: (pitch_class, mode) -> camelot notation
 # mode: 0 = minor, 1 = major
-_CAMELOT = {
-    (0, 1): "8B",   # C major
-    (1, 1): "3B",   # C#/Db major
-    (2, 1): "10B",  # D major
-    (3, 1): "5B",   # D#/Eb major
-    (4, 1): "12B",  # E major
-    (5, 1): "1B",   # F major
-    (6, 1): "8B",   # F#/Gb major → same Camelot as C
-    (6, 1): "6B",   # F#/Gb major
-    (7, 1): "1B",   # G major → corrected below
-    (7, 1): "9B",   # G major
-    (8, 1): "4B",   # G#/Ab major
-    (9, 1): "11B",  # A major
-    (10, 1): "6B",  # A#/Bb major
-    (11, 1): "1B",  # B major → corrected below
-    (11, 1): "7B",  # B major (corrected: was typo)
-    (0, 0): "5A",   # C minor
-    (1, 0): "12A",  # C#/Db minor
-    (2, 0): "7A",   # D minor
-    (3, 0): "2A",   # D#/Eb minor
-    (4, 0): "9A",   # E minor
-    (5, 0): "4A",   # F minor
-    (6, 0): "11A",  # F#/Gb minor → corrected
-    (7, 0): "6A",   # G minor
-    (8, 0): "1A",   # G#/Ab minor
-    (9, 0): "8A",   # A minor
-    (10, 0): "3A",  # A#/Bb minor
-    (11, 0): "10A", # B minor
-}
-
-# Corrected full Camelot mapping
+# Reference: circle of fifths → C=8, G=9, D=10, A=11, E=12, B=1, F#=2, Db=3, Ab=4, Eb=5, Bb=6, F=7
 CAMELOT_WHEEL = {
     # Major keys (B)
     (0, 1): "8B",    # C
@@ -42,14 +12,14 @@ CAMELOT_WHEEL = {
     (2, 1): "10B",   # D
     (3, 1): "5B",    # Eb
     (4, 1): "12B",   # E
-    (5, 1): "1B",    # F
-    (6, 1): "6B",    # F#/Gb
+    (5, 1): "7B",    # F
+    (6, 1): "2B",    # F#/Gb
     (7, 1): "9B",    # G
     (8, 1): "4B",    # Ab
     (9, 1): "11B",   # A
     (10, 1): "6B",   # Bb
-    (11, 1): "7B",   # B
-    # Minor keys (A)
+    (11, 1): "1B",   # B
+    # Minor keys (A) — relative minor shares Camelot number with its major
     (0, 0): "5A",    # Cm
     (1, 0): "12A",   # C#m
     (2, 0): "7A",    # Dm

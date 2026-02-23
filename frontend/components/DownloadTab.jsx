@@ -4,12 +4,24 @@ import { useState } from "react";
 
 export default function DownloadTab({ onDownload }) {
   const [url, setUrl] = useState("");
+  const [batchMode, setBatchMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
 
+  const handleUrlChange = (val) => {
+    setUrl(val);
+    // Auto-detect batch mode when pasting multiple lines
+    if (!batchMode && val.includes("\n") && val.trim().split("\n").filter(Boolean).length > 1) {
+      setBatchMode(true);
+    }
+  };
+
+  const getUrls = () =>
+    url.split("\n").map((u) => u.trim()).filter(Boolean);
+
   const fetchInfo = async () => {
-    if (!url.trim()) return;
+    if (!url.trim() || batchMode) return;
     setLoading(true);
     setError("");
     setInfo(null);
@@ -18,7 +30,7 @@ export default function DownloadTab({ onDownload }) {
       const res = await fetch("/api/info", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: url.trim() }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -38,10 +50,16 @@ export default function DownloadTab({ onDownload }) {
     setError("");
 
     try {
-      const res = await fetch("/api/download", {
+      const urls = batchMode ? getUrls() : [url.trim()];
+      if (urls.length === 0) return;
+
+      const endpoint = urls.length > 1 ? "/api/download-batch" : "/api/download";
+      const body = urls.length > 1 ? { urls } : { url: urls[0] };
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -58,31 +76,74 @@ export default function DownloadTab({ onDownload }) {
     }
   };
 
+  const urlCount = batchMode ? getUrls().length : 0;
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4">
-        <h2 className="text-base font-semibold">Paste a Link</h2>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Works with YouTube and SoundCloud — individual tracks, playlists, and sets
-        </p>
-
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
-            placeholder="YouTube or SoundCloud URL (videos, playlists, sets)"
-            className="flex-1 px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-colors"
-          />
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold">
+              {batchMode ? "Batch Download" : "Paste a Link"}
+            </h2>
+            <p className="text-sm text-[var(--text-secondary)]">
+              {batchMode
+                ? "Paste multiple URLs — one per line"
+                : "Works with YouTube and SoundCloud — individual tracks, playlists, and sets"}
+            </p>
+          </div>
           <button
-            onClick={fetchInfo}
-            disabled={loading || !url.trim()}
-            className="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
+            onClick={() => {
+              setBatchMode(!batchMode);
+              setInfo(null);
+              setError("");
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-white transition-colors"
           >
-            {loading ? "Loading..." : "Preview"}
+            {batchMode ? "Single URL" : "Batch Mode"}
           </button>
         </div>
+
+        {batchMode ? (
+          <div className="space-y-3">
+            <textarea
+              value={url}
+              onChange={(e) => handleUrlChange(e.target.value)}
+              placeholder={"Paste URLs here — one per line\nhttps://youtube.com/watch?v=...\nhttps://soundcloud.com/..."}
+              rows={5}
+              className="w-full px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-colors resize-y font-mono"
+            />
+            {urlCount > 0 && (
+              <button
+                onClick={handleDownload}
+                disabled={loading}
+                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+              >
+                {loading
+                  ? "Downloading..."
+                  : `Download ${urlCount} URL${urlCount > 1 ? "s" : ""} as MP3`}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => handleUrlChange(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
+              placeholder="YouTube or SoundCloud URL (videos, playlists, sets)"
+              className="flex-1 px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-colors"
+            />
+            <button
+              onClick={fetchInfo}
+              disabled={loading || !url.trim()}
+              className="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
+            >
+              {loading ? "Loading..." : "Preview"}
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -91,8 +152,8 @@ export default function DownloadTab({ onDownload }) {
         )}
       </div>
 
-      {/* Preview */}
-      {info && (
+      {/* Preview (single URL mode only) */}
+      {info && !batchMode && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
           <div className="flex items-start gap-4">
             {info.thumbnail && (

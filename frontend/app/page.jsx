@@ -4,12 +4,14 @@ import { useState } from "react";
 import DownloadTab from "../components/DownloadTab";
 import SearchTab from "../components/SearchTab";
 import SpotifyTab from "../components/SpotifyTab";
+import HistoryTab from "../components/HistoryTab";
 import DownloadQueue from "../components/DownloadQueue";
 
 const TABS = [
   { id: "download", label: "Download Link" },
   { id: "search", label: "Search Music" },
   { id: "spotify", label: "Spotify Import" },
+  { id: "history", label: "History" },
 ];
 
 export default function Home() {
@@ -72,6 +74,7 @@ export default function Home() {
             {activeTab === "spotify" && (
               <SpotifyTab onDownload={addDownloads} />
             )}
+            {activeTab === "history" && <HistoryTab />}
           </div>
 
           {/* Download Queue */}
