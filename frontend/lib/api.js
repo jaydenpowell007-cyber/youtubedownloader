@@ -12,7 +12,7 @@
  * e.g. "https://your-app.up.railway.app"
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
 
 /**
  * Returns the path as-is for HTTP requests.
