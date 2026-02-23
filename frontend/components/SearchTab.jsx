@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import QualitySelector from "./QualitySelector";
 
 const PLATFORMS = [
   { value: "all", label: "All" },
@@ -8,7 +9,7 @@ const PLATFORMS = [
   { value: "soundcloud", label: "SoundCloud" },
 ];
 
-export default function SearchTab({ onDownload }) {
+export default function SearchTab({ onDownload, quality, onQualityChange }) {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState("all");
   const [results, setResults] = useState([]);
@@ -68,10 +69,10 @@ export default function SearchTab({ onDownload }) {
     setError("");
 
     try {
-      const res = await fetch("/api/download-selected", {
+      const res = await fetch("/api/download-selected/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls }),
+        body: JSON.stringify({ urls, quality }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -208,15 +209,18 @@ export default function SearchTab({ onDownload }) {
           </div>
 
           {selected.size > 0 && (
-            <button
-              onClick={handleDownloadSelected}
-              disabled={downloading}
-              className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
-            >
-              {downloading
-                ? "Downloading..."
-                : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as MP3`}
-            </button>
+            <div className="space-y-3">
+              <QualitySelector quality={quality} onChange={onQualityChange} />
+              <button
+                onClick={handleDownloadSelected}
+                disabled={downloading}
+                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+              >
+                {downloading
+                  ? "Downloading..."
+                  : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as ${quality === "flac" ? "FLAC" : "MP3"}`}
+              </button>
+            </div>
           )}
         </div>
       )}

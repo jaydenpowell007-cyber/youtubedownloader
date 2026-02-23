@@ -24,6 +24,8 @@ class HistoryEntry:
     camelot: Optional[str]
     downloaded_at: str
     normalized: bool
+    quality: str = "320"
+    format_type: str = "mp3"
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -47,6 +49,12 @@ def _get_conn() -> sqlite3.Connection:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_downloads_title ON downloads(title)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_downloads_url ON downloads(url)")
+    # Migrate: add columns if they don't exist yet
+    for col, default in [("quality", "'320'"), ("format_type", "'mp3'")]:
+        try:
+            conn.execute(f"ALTER TABLE downloads ADD COLUMN {col} TEXT NOT NULL DEFAULT {default}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     conn.commit()
     return conn
 
@@ -61,14 +69,16 @@ def record_download(
     key: Optional[str] = None,
     camelot: Optional[str] = None,
     normalized: bool = False,
+    quality: str = "320",
+    format_type: str = "mp3",
 ) -> int:
     """Record a completed download. Returns the row ID."""
     conn = _get_conn()
     try:
         cur = conn.execute(
-            """INSERT INTO downloads (url, title, artist, filename, source, bpm, key_name, camelot, normalized)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (url, title, artist, filename, source, bpm, key, camelot, int(normalized)),
+            """INSERT INTO downloads (url, title, artist, filename, source, bpm, key_name, camelot, normalized, quality, format_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (url, title, artist, filename, source, bpm, key, camelot, int(normalized), quality, format_type),
         )
         conn.commit()
         return cur.lastrowid
@@ -189,4 +199,6 @@ def _row_to_entry(row) -> HistoryEntry:
         camelot=row[8],
         downloaded_at=row[9],
         normalized=bool(row[10]),
+        quality=row[11] if len(row) > 11 else "320",
+        format_type=row[12] if len(row) > 12 else "mp3",
     )

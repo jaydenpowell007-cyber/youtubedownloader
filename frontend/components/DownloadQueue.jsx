@@ -36,9 +36,24 @@ export default function DownloadQueue({ downloads, onClear }) {
     }
   };
 
+  const isActive = (status) =>
+    status !== "done" && status !== "error" && status !== "skipped";
+
   const doneCount = downloads.filter((d) => d.status === "done").length;
   const skippedCount = downloads.filter((d) => d.status === "skipped").length;
   const errorCount = downloads.filter((d) => d.status === "error").length;
+  const activeCount = downloads.filter((d) => isActive(d.status)).length;
+
+  const formatLabel = (d) => {
+    if (d.format_type === "flac" || d.quality === "flac") return "FLAC";
+    return `MP3`;
+  };
+
+  const qualityLabel = (d) => {
+    if (d.quality === "flac") return "";
+    if (d.quality && d.quality !== "320") return `${d.quality}k`;
+    return "";
+  };
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
@@ -47,6 +62,7 @@ export default function DownloadQueue({ downloads, onClear }) {
           <h3 className="text-sm font-semibold">Downloads</h3>
           <p className="text-xs text-[var(--text-secondary)] mt-0.5">
             {doneCount} completed
+            {activeCount > 0 && ` — ${activeCount} in progress`}
             {skippedCount > 0 && ` — ${skippedCount} skipped (duplicates)`}
             {errorCount > 0 && ` — ${errorCount} failed`}
           </p>
@@ -59,7 +75,7 @@ export default function DownloadQueue({ downloads, onClear }) {
         </button>
       </div>
 
-      <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+      <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
         {downloads.map((d) => (
           <div
             key={d.job_id}
@@ -79,20 +95,32 @@ export default function DownloadQueue({ downloads, onClear }) {
                   </span>
                 )}
               </div>
+              {/* Progress bar for active downloads */}
+              {isActive(d.status) && (
+                <div className="mt-1.5 space-y-1">
+                  <div className="w-full h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-brand-500 transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.max(0, (d.progress || 0) * 100))}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-[var(--text-secondary)]">
+                    {d.status === "downloading" && `Downloading... ${Math.round((d.progress || 0) * 100)}%`}
+                    {d.status === "normalizing" && "Normalizing audio levels..."}
+                    {d.status === "analyzing" && "Analyzing BPM & key..."}
+                    {d.status === "pending" && "Queued..."}
+                    {!["downloading", "normalizing", "analyzing", "pending"].includes(d.status) && isActive(d.status) && "Processing..."}
+                  </p>
+                </div>
+              )}
               {d.error && (
                 <p className="text-xs text-red-400 truncate">{d.error}</p>
               )}
               {d.skipped_reason && (
                 <p className="text-xs text-yellow-400 truncate">{d.skipped_reason}</p>
               )}
-              {d.status === "normalizing" && (
-                <p className="text-xs text-brand-400">Normalizing audio levels...</p>
-              )}
-              {d.status === "analyzing" && (
-                <p className="text-xs text-brand-400">Analyzing BPM & key...</p>
-              )}
             </div>
-            {/* BPM / Key / Camelot / Normalized badges */}
+            {/* BPM / Key / Camelot / Normalized / Quality badges */}
             {(d.status === "done" || d.status === "skipped") && d.bpm && (
               <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 flex-shrink-0">
                 {d.bpm} BPM
@@ -109,7 +137,13 @@ export default function DownloadQueue({ downloads, onClear }) {
               </span>
             )}
             {d.status === "done" && (
-              <span className="text-xs text-green-400 flex-shrink-0">MP3</span>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                d.quality === "flac"
+                  ? "bg-amber-500/15 text-amber-400"
+                  : "bg-green-500/15 text-green-400"
+              }`}>
+                {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
+              </span>
             )}
             {d.status === "skipped" && (
               <span className="text-xs text-yellow-400 flex-shrink-0">DUP</span>

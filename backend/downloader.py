@@ -3,6 +3,7 @@
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -17,6 +18,12 @@ from backend.errors import (
     ExtractionError,
     NormalizationError,
 )
+
+# Valid quality options
+QUALITY_OPTIONS = ("128", "192", "256", "320", "flac")
+
+# Background thread pool for async downloads
+_bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
 
 
 @dataclass
@@ -33,6 +40,8 @@ class DownloadProgress:
     camelot: Optional[str] = None
     normalized: bool = False
     skipped_reason: Optional[str] = None
+    quality: str = "320"
+    format_type: str = "mp3"  # mp3 | flac
 
 
 # In-memory job tracker (keyed by job_id)
@@ -142,15 +151,50 @@ def is_multi_track(url: str) -> bool:
         return False
 
 
-def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates: bool = True) -> DownloadProgress:
-    """Download a single track as MP3. Returns job info."""
+def _resolve_quality(quality: str) -> tuple[str, str]:
+    """Resolve quality string to (codec, bitrate) tuple.
+
+    Returns:
+        (codec, ext) — e.g. ("mp3", "mp3") or ("flac", "flac")
+    """
+    if quality == "flac":
+        return "flac", "flac"
+    if quality not in ("128", "192", "256", "320"):
+        quality = "320"
+    return "mp3", "mp3"
+
+
+def download_single(
+    url: str,
+    output_dir: Optional[str] = None,
+    skip_duplicates: bool = True,
+    quality: str = "320",
+) -> DownloadProgress:
+    """Download a single track. Returns job info (blocks until complete)."""
+    fmt_type = "flac" if quality == "flac" else "mp3"
+    job = DownloadProgress(
+        job_id=str(uuid.uuid4()),
+        source=detect_source(url),
+        quality=quality,
+        format_type=fmt_type,
+    )
+    _set_job(job)
+    _run_download(job, url, output_dir, quality, skip_duplicates)
+    return job
+
+
+def _run_download(
+    job: DownloadProgress,
+    url: str,
+    output_dir: Optional[str],
+    quality: str,
+    skip_duplicates: bool,
+):
+    """Core download worker — updates job in-place. Used by both sync and async paths."""
     from backend.history import is_duplicate, record_download
     from backend.normalize import normalize_audio
 
-    source = detect_source(url)
-    job = DownloadProgress(job_id=str(uuid.uuid4()), source=source)
-    _set_job(job)
-
+    codec, ext = _resolve_quality(quality)
     dest = output_dir or DOWNLOADS_DIR
     Path(dest).mkdir(parents=True, exist_ok=True)
 
@@ -167,15 +211,16 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
             job.camelot = existing.camelot
             job.normalized = existing.normalized
             _set_job(job)
-            return job
+            return
 
+    bitrate = quality if quality != "flac" else "0"
     opts = {
         "format": "bestaudio/best",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "320",
+                "preferredcodec": codec,
+                "preferredquality": bitrate,
             }
         ],
         "outtmpl": os.path.join(dest, "%(title)s.%(ext)s"),
@@ -191,13 +236,12 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
 
         info = _retry(_download, description=f"download {url}")
         job.title = info.get("title", "Unknown")
-        job.filename = os.path.join(dest, f"{info.get('title', 'Unknown')}.mp3")
+        job.filename = os.path.join(dest, f"{info.get('title', 'Unknown')}.{ext}")
 
         # --- Duplicate check (by title, post-download) ---
         if skip_duplicates and job.title:
             existing = is_duplicate(title=job.title)
             if existing:
-                # Already have this track — remove the new file and skip
                 if job.filename and os.path.exists(job.filename) and existing.filename != job.filename:
                     try:
                         os.remove(job.filename)
@@ -211,7 +255,7 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
                 job.camelot = existing.camelot
                 job.normalized = existing.normalized
                 _set_job(job)
-                return job
+                return
 
         # --- Post-download pipeline: normalize → analyze → tag → record ---
         if job.filename and os.path.exists(job.filename):
@@ -219,7 +263,7 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
             job.status = "normalizing"
             _set_job(job)
             try:
-                normalize_audio(job.filename)
+                normalize_audio(job.filename, quality=quality)
                 job.normalized = True
             except NormalizationError:
                 pass  # Normalization is best-effort
@@ -236,21 +280,22 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
             job.key = analysis.get("key")
             job.camelot = analysis.get("camelot")
 
-            # 3. Extract artist/title and write ID3 tags
+            # 3. Extract artist/title and write ID3 tags (MP3 only — FLAC uses Vorbis comments via mutagen)
             artist, title = extract_artist_title(info.get("title", ""))
             thumbnail = info.get("thumbnail", "")
 
-            tag_mp3(
-                filepath=job.filename,
-                title=title or info.get("title", ""),
-                artist=artist or info.get("channel", info.get("uploader", "")),
-                album=info.get("album", ""),
-                genre=info.get("genre", ""),
-                bpm=job.bpm,
-                key=job.key,
-                camelot=job.camelot,
-                thumbnail_url=thumbnail,
-            )
+            if ext == "mp3":
+                tag_mp3(
+                    filepath=job.filename,
+                    title=title or info.get("title", ""),
+                    artist=artist or info.get("channel", info.get("uploader", "")),
+                    album=info.get("album", ""),
+                    genre=info.get("genre", ""),
+                    bpm=job.bpm,
+                    key=job.key,
+                    camelot=job.camelot,
+                    thumbnail_url=thumbnail,
+                )
 
             # 4. Record in download history
             record_download(
@@ -258,11 +303,13 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
                 title=job.title,
                 artist=artist or info.get("channel", info.get("uploader", "")),
                 filename=job.filename,
-                source=source,
+                source=job.source,
                 bpm=job.bpm,
                 key=job.key,
                 camelot=job.camelot,
                 normalized=job.normalized,
+                quality=quality,
+                format_type=ext,
             )
 
         job.status = "done"
@@ -282,35 +329,102 @@ def download_single(url: str, output_dir: Optional[str] = None, skip_duplicates:
         job.error = str(e)
 
     _set_job(job)
+
+
+# --- Async (non-blocking) download functions ---
+
+
+def start_download_single(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+) -> DownloadProgress:
+    """Start a single download in the background. Returns job immediately."""
+    fmt_type = "flac" if quality == "flac" else "mp3"
+    job = DownloadProgress(
+        job_id=str(uuid.uuid4()),
+        source=detect_source(url),
+        quality=quality,
+        format_type=fmt_type,
+    )
+    _set_job(job)
+    _bg_executor.submit(_run_download, job, url, output_dir, quality, True)
     return job
 
 
-def download_multi(url: str, output_dir: Optional[str] = None) -> list[DownloadProgress]:
-    """Download all tracks from a playlist/set/artist page as MP3s."""
+def start_download(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+) -> list[DownloadProgress]:
+    """Start download(s) in background. Returns job list immediately.
+
+    For playlists, extracts the track list first (brief blocking), then submits
+    each track to the background pool.
+    """
+    if is_multi_track(url):
+        info = extract_info(url)
+        entries = info.get("entries", [])[:MAX_PLAYLIST_SIZE]
+        jobs = []
+        for entry in entries:
+            video_url = entry.get("url") or entry.get("webpage_url")
+            if not video_url and entry.get("id"):
+                source = detect_source(url)
+                if source == "youtube":
+                    video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                else:
+                    continue
+            if video_url:
+                jobs.append(start_download_single(video_url, output_dir, quality))
+        return jobs
+    return [start_download_single(url, output_dir, quality)]
+
+
+def start_download_batch(
+    urls: list[str],
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+) -> list[DownloadProgress]:
+    """Start batch downloads in background. Returns all jobs immediately."""
+    all_jobs = []
+    for url in urls:
+        url = url.strip()
+        if not url:
+            continue
+        try:
+            all_jobs.extend(start_download(url, output_dir, quality))
+        except Exception:
+            continue
+    return all_jobs
+
+
+# --- Synchronous download functions (CLI) ---
+
+
+def download_multi(url: str, output_dir: Optional[str] = None, quality: str = "320") -> list[DownloadProgress]:
+    """Download all tracks from a playlist/set/artist page."""
     info = extract_info(url)
     entries = info.get("entries", [])[:MAX_PLAYLIST_SIZE]
 
     jobs = []
     for entry in entries:
-        # Build the track URL — works for any platform
         video_url = entry.get("url") or entry.get("webpage_url")
         if not video_url and entry.get("id"):
             source = detect_source(url)
             if source == "youtube":
                 video_url = f"https://www.youtube.com/watch?v={entry['id']}"
             else:
-                # For SoundCloud and others, yt-dlp usually provides the url
                 continue
 
         if video_url:
-            job = download_single(video_url, output_dir)
+            job = download_single(video_url, output_dir, quality=quality)
             jobs.append(job)
 
     return jobs
 
 
-def download(url: str, output_dir: Optional[str] = None) -> list[DownloadProgress]:
+def download(url: str, output_dir: Optional[str] = None, quality: str = "320") -> list[DownloadProgress]:
     """Smart download — detects single vs multi-track and downloads accordingly."""
     if is_multi_track(url):
-        return download_multi(url, output_dir)
-    return [download_single(url, output_dir)]
+        return download_multi(url, output_dir, quality)
+    return [download_single(url, output_dir, quality=quality)]

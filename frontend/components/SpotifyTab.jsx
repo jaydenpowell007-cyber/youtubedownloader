@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import QualitySelector from "./QualitySelector";
 
-export default function SpotifyTab({ onDownload }) {
+export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
   const [url, setUrl] = useState("");
   const [tracks, setTracks] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -60,13 +61,9 @@ export default function SpotifyTab({ onDownload }) {
     setDownloading(true);
     setError("");
 
-    // Build search queries for selected tracks, download one by one via search+download
     const selectedTracks = [...selected].map((i) => tracks[i]);
 
     try {
-      // Use the spotify/download endpoint with the full playlist
-      // But we want only selected tracks, so we search and download individually
-      const jobs = [];
       for (const track of selectedTracks) {
         try {
           // Search for the track on YouTube
@@ -83,16 +80,14 @@ export default function SpotifyTab({ onDownload }) {
           const results = await searchRes.json();
           if (results.length === 0) continue;
 
-          // Download the top result
-          const dlRes = await fetch("/api/download", {
+          // Start async download for the top result
+          const dlRes = await fetch("/api/download/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: results[0].url }),
+            body: JSON.stringify({ url: results[0].url, quality }),
           });
           if (!dlRes.ok) continue;
           const dlJobs = await dlRes.json();
-          jobs.push(...dlJobs);
-          // Update queue progressively
           onDownload(dlJobs);
         } catch {
           continue;
@@ -209,15 +204,18 @@ export default function SpotifyTab({ onDownload }) {
           </div>
 
           {selected.size > 0 && (
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
-            >
-              {downloading
-                ? `Downloading... (tracks are added to queue as they complete)`
-                : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as MP3`}
-            </button>
+            <div className="space-y-3">
+              <QualitySelector quality={quality} onChange={onQualityChange} />
+              <button
+                onClick={handleDownload}
+                disabled={downloading}
+                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+              >
+                {downloading
+                  ? `Downloading... (tracks are added to queue as they complete)`
+                  : `Download ${selected.size} Track${selected.size > 1 ? "s" : ""} as ${quality === "flac" ? "FLAC" : "MP3"}`}
+              </button>
+            </div>
           )}
         </div>
       )}

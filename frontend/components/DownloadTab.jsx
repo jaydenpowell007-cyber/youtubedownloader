@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import QualitySelector from "./QualitySelector";
 
-export default function DownloadTab({ onDownload }) {
+export default function DownloadTab({ onDownload, quality, onQualityChange }) {
   const [url, setUrl] = useState("");
   const [batchMode, setBatchMode] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -53,8 +54,10 @@ export default function DownloadTab({ onDownload }) {
       const urls = batchMode ? getUrls() : [url.trim()];
       if (urls.length === 0) return;
 
-      const endpoint = urls.length > 1 ? "/api/download-batch" : "/api/download";
-      const body = urls.length > 1 ? { urls } : { url: urls[0] };
+      const endpoint = urls.length > 1 ? "/api/download-batch/start" : "/api/download/start";
+      const body = urls.length > 1
+        ? { urls, quality }
+        : { url: urls[0], quality };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -104,6 +107,8 @@ export default function DownloadTab({ onDownload }) {
           </button>
         </div>
 
+        <QualitySelector quality={quality} onChange={onQualityChange} />
+
         {batchMode ? (
           <div className="space-y-3">
             <textarea
@@ -121,7 +126,7 @@ export default function DownloadTab({ onDownload }) {
               >
                 {loading
                   ? "Downloading..."
-                  : `Download ${urlCount} URL${urlCount > 1 ? "s" : ""} as MP3`}
+                  : `Download ${urlCount} URL${urlCount > 1 ? "s" : ""} as ${quality === "flac" ? "FLAC" : "MP3"}`}
               </button>
             )}
           </div>
@@ -208,8 +213,8 @@ export default function DownloadTab({ onDownload }) {
             {loading
               ? "Downloading..."
               : info.is_playlist
-                ? `Download All ${info.entry_count} Tracks as MP3`
-                : "Download as MP3"}
+                ? `Download All ${info.entry_count} Tracks as ${quality === "flac" ? "FLAC" : "MP3"}`
+                : `Download as ${quality === "flac" ? "FLAC" : "MP3"}`}
           </button>
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import DownloadTab from "../components/DownloadTab";
 import SearchTab from "../components/SearchTab";
 import SpotifyTab from "../components/SpotifyTab";
@@ -14,13 +14,59 @@ const TABS = [
   { id: "history", label: "History" },
 ];
 
+const TERMINAL_STATUSES = new Set(["done", "error", "skipped"]);
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState("download");
   const [downloads, setDownloads] = useState([]);
+  const [quality, setQuality] = useState("320");
+  const pollRef = useRef(null);
 
   const addDownloads = (newJobs) => {
     setDownloads((prev) => [...newJobs, ...prev]);
   };
+
+  // Poll active jobs for live progress
+  const pollJobs = useCallback(async () => {
+    const activeIds = downloads
+      .filter((d) => !TERMINAL_STATUSES.has(d.status))
+      .map((d) => d.job_id);
+
+    if (activeIds.length === 0) return;
+
+    try {
+      const res = await fetch("/api/jobs/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_ids: activeIds }),
+      });
+      if (!res.ok) return;
+      const updated = await res.json();
+
+      // Merge updates into current downloads
+      setDownloads((prev) => {
+        const updateMap = new Map(updated.map((u) => [u.job_id, u]));
+        return prev.map((d) => updateMap.get(d.job_id) || d);
+      });
+    } catch {
+      // Silently ignore polling errors
+    }
+  }, [downloads]);
+
+  useEffect(() => {
+    const hasActive = downloads.some((d) => !TERMINAL_STATUSES.has(d.status));
+
+    if (hasActive) {
+      pollRef.current = setInterval(pollJobs, 1500);
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [downloads, pollJobs]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -66,13 +112,25 @@ export default function Home() {
           {/* Active Tab Content */}
           <div className="animate-slide-up" key={activeTab}>
             {activeTab === "download" && (
-              <DownloadTab onDownload={addDownloads} />
+              <DownloadTab
+                onDownload={addDownloads}
+                quality={quality}
+                onQualityChange={setQuality}
+              />
             )}
             {activeTab === "search" && (
-              <SearchTab onDownload={addDownloads} />
+              <SearchTab
+                onDownload={addDownloads}
+                quality={quality}
+                onQualityChange={setQuality}
+              />
             )}
             {activeTab === "spotify" && (
-              <SpotifyTab onDownload={addDownloads} />
+              <SpotifyTab
+                onDownload={addDownloads}
+                quality={quality}
+                onQualityChange={setQuality}
+              />
             )}
             {activeTab === "history" && <HistoryTab />}
           </div>

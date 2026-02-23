@@ -14,7 +14,7 @@ import argparse
 import sys
 
 from backend.config import DOWNLOADS_DIR
-from backend.downloader import download, download_single, is_multi_track, extract_info, detect_source
+from backend.downloader import download, download_single, is_multi_track, extract_info, detect_source, QUALITY_OPTIONS
 from backend.search import search
 
 
@@ -60,9 +60,12 @@ def cmd_download(args):
     """Download a YouTube or SoundCloud URL as MP3."""
     url = args.url
     output = args.output or DOWNLOADS_DIR
+    quality = args.quality
     source = detect_source(url)
+    fmt = "FLAC" if quality == "flac" else f"MP3 {quality}kbps"
 
     print(f"  Source:    {source or 'auto-detect'}")
+    print(f"  Quality:   {fmt}")
     print(f"  Output:   {output}")
     print()
 
@@ -76,7 +79,7 @@ def cmd_download(args):
     print("  Downloading (with BPM/key analysis + tagging)...")
     print()
 
-    jobs = download(url, output)
+    jobs = download(url, output, quality)
 
     for job in jobs:
         _print_job_result(job)
@@ -145,8 +148,9 @@ def cmd_search(args):
     print(f"  Downloading {len(selected)} track(s) to {output}...")
     print()
 
+    quality = args.quality
     for r in selected:
-        job = download_single(r.url, output)
+        job = download_single(r.url, output, quality=quality)
         _print_job_result(job)
 
     print()
@@ -212,6 +216,7 @@ def cmd_spotify(args):
     print(f"  Searching {platform} & downloading {len(selected)} track(s)...")
     print()
 
+    quality = args.quality
     for t in selected:
         print(f"  Searching: {t.search_query}")
         results = search(t.search_query, platform, 1)
@@ -219,7 +224,7 @@ def cmd_spotify(args):
             print(f"  [SKIP]  Not found: {t.artist} — {t.title}")
             continue
 
-        job = download_single(results[0].url, output)
+        job = download_single(results[0].url, output, quality=quality)
         _print_job_result(job)
 
     print()
@@ -297,6 +302,7 @@ def main():
     dl = subparsers.add_parser("download", aliases=["dl"], help="Download a URL as MP3")
     dl.add_argument("url", help="YouTube or SoundCloud URL (video, track, playlist, set)")
     dl.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
+    dl.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS), default="320", help="Audio quality (default: 320)")
     dl.set_defaults(func=cmd_download)
 
     # search
@@ -310,8 +316,9 @@ def main():
         help="Platform to search (default: all)",
     )
     s.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
+    s.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS), default="320", help="Audio quality (default: 320)")
     s.set_defaults(func=lambda a: cmd_search(argparse.Namespace(
-        query=" ".join(a.query), max_results=a.max_results, platform=a.platform, output=a.output
+        query=" ".join(a.query), max_results=a.max_results, platform=a.platform, output=a.output, quality=a.quality
     )))
 
     # spotify
@@ -324,6 +331,7 @@ def main():
         help="Platform to search tracks on (default: youtube)",
     )
     sp.add_argument("-o", "--output", help="Output directory (default: ~/Downloads/DJ-Music)")
+    sp.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS), default="320", help="Audio quality (default: 320)")
     sp.set_defaults(func=cmd_spotify)
 
     # history

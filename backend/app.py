@@ -18,6 +18,10 @@ from backend.downloader import (
     extract_info,
     is_multi_track,
     detect_source,
+    start_download,
+    start_download_single,
+    start_download_batch,
+    QUALITY_OPTIONS,
 )
 from backend.search import search
 from backend.spotify import get_playlist_tracks
@@ -48,16 +52,19 @@ executor = ThreadPoolExecutor(max_workers=4)
 class DownloadRequest(BaseModel):
     url: str
     output_dir: Optional[str] = None
+    quality: str = "320"
 
 
 class BatchDownloadRequest(BaseModel):
     urls: list[str]
     output_dir: Optional[str] = None
+    quality: str = "320"
 
 
 class DownloadSelectedRequest(BaseModel):
     urls: list[str]
     output_dir: Optional[str] = None
+    quality: str = "320"
 
 
 class SearchRequest(BaseModel):
@@ -91,6 +98,8 @@ class JobStatus(BaseModel):
     camelot: Optional[str] = None
     normalized: bool = False
     skipped_reason: Optional[str] = None
+    quality: str = "320"
+    format_type: str = "mp3"
 
 
 class SearchResultResponse(BaseModel):
@@ -122,6 +131,8 @@ class HistoryEntryResponse(BaseModel):
     camelot: Optional[str] = None
     downloaded_at: str
     normalized: bool
+    quality: str = "320"
+    format_type: str = "mp3"
 
 
 class HistoryResponse(BaseModel):
@@ -143,6 +154,8 @@ def _job_to_status(j) -> JobStatus:
         camelot=j.camelot,
         normalized=getattr(j, "normalized", False),
         skipped_reason=getattr(j, "skipped_reason", None),
+        quality=getattr(j, "quality", "320"),
+        format_type=getattr(j, "format_type", "mp3"),
     )
 
 
@@ -156,11 +169,24 @@ def health():
 
 @app.post("/api/download", response_model=list[JobStatus])
 async def api_download(req: DownloadRequest):
-    """Download a YouTube or SoundCloud URL (single track or playlist/set) as MP3."""
+    """Download a YouTube or SoundCloud URL (single track or playlist/set). Blocks until complete."""
     loop = asyncio.get_event_loop()
     try:
         jobs = await loop.run_in_executor(
-            executor, lambda: download(req.url, req.output_dir)
+            executor, lambda: download(req.url, req.output_dir, req.quality)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return [_job_to_status(j) for j in jobs]
+
+
+@app.post("/api/download/start", response_model=list[JobStatus])
+async def api_download_start(req: DownloadRequest):
+    """Start download in background. Returns job IDs immediately — poll /api/job/{id} for progress."""
+    loop = asyncio.get_event_loop()
+    try:
+        jobs = await loop.run_in_executor(
+            executor, lambda: start_download(req.url, req.output_dir, req.quality)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -169,18 +195,29 @@ async def api_download(req: DownloadRequest):
 
 @app.post("/api/download-selected", response_model=list[JobStatus])
 async def api_download_selected(req: DownloadSelectedRequest):
-    """Download multiple selected URLs as MP3."""
+    """Download multiple selected URLs. Blocks until complete."""
     loop = asyncio.get_event_loop()
     all_jobs = []
     for url in req.urls:
         try:
             job = await loop.run_in_executor(
-                executor, lambda u=url: download_single(u, req.output_dir)
+                executor, lambda u=url: download_single(u, req.output_dir, quality=req.quality)
             )
             all_jobs.append(job)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed on {url}: {e}")
     return [_job_to_status(j) for j in all_jobs]
+
+
+@app.post("/api/download-selected/start", response_model=list[JobStatus])
+async def api_download_selected_start(req: DownloadSelectedRequest):
+    """Start multiple downloads in background. Returns immediately."""
+    jobs = []
+    for url in req.urls:
+        url = url.strip()
+        if url:
+            jobs.append(start_download_single(url, req.output_dir, req.quality))
+    return [_job_to_status(j) for j in jobs]
 
 
 @app.get("/api/job/{job_id}", response_model=JobStatus)
@@ -190,6 +227,21 @@ def api_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return _job_to_status(job)
+
+
+class PollJobsRequest(BaseModel):
+    job_ids: list[str]
+
+
+@app.post("/api/jobs/poll", response_model=list[JobStatus])
+def api_poll_jobs(req: PollJobsRequest):
+    """Poll multiple jobs at once. Returns current status for each."""
+    results = []
+    for job_id in req.job_ids:
+        job = get_job_status(job_id)
+        if job:
+            results.append(_job_to_status(job))
+    return results
 
 
 @app.post("/api/info")
@@ -306,7 +358,7 @@ async def api_spotify_download(req: SpotifyImportRequest):
 
 @app.post("/api/download-batch", response_model=list[JobStatus])
 async def api_download_batch(req: BatchDownloadRequest):
-    """Download multiple URLs as MP3 — each URL auto-detects single vs playlist."""
+    """Download multiple URLs — each auto-detects single vs playlist. Blocks until complete."""
     loop = asyncio.get_event_loop()
     all_jobs = []
     for url in req.urls:
@@ -315,12 +367,25 @@ async def api_download_batch(req: BatchDownloadRequest):
             continue
         try:
             jobs = await loop.run_in_executor(
-                executor, lambda u=url: download(u, req.output_dir)
+                executor, lambda u=url: download(u, req.output_dir, req.quality)
             )
             all_jobs.extend(jobs)
         except Exception:
-            continue  # Skip URLs that fail entirely
+            continue
     return [_job_to_status(j) for j in all_jobs]
+
+
+@app.post("/api/download-batch/start", response_model=list[JobStatus])
+async def api_download_batch_start(req: BatchDownloadRequest):
+    """Start batch downloads in background. Returns immediately."""
+    loop = asyncio.get_event_loop()
+    try:
+        jobs = await loop.run_in_executor(
+            executor, lambda: start_download_batch(req.urls, req.output_dir, req.quality)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return [_job_to_status(j) for j in jobs]
 
 
 # --- Download History ---
@@ -352,6 +417,8 @@ async def api_history(req: HistoryRequest):
                 camelot=e.camelot,
                 downloaded_at=e.downloaded_at,
                 normalized=e.normalized,
+                quality=getattr(e, "quality", "320"),
+                format_type=getattr(e, "format_type", "mp3"),
             )
             for e in entries
         ],
