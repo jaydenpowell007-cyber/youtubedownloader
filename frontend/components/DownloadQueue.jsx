@@ -60,18 +60,30 @@ export default function DownloadQueue({ downloads, onClear }) {
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-3">
           <h3 className="text-sm font-semibold">Downloads</h3>
-          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-            {doneCount} completed
-            {activeCount > 0 && ` — ${activeCount} in progress`}
-            {skippedCount > 0 && ` — ${skippedCount} skipped (duplicates)`}
-            {errorCount > 0 && ` — ${errorCount} failed`}
-          </p>
+          <div className="flex items-center gap-2 text-[10px] font-medium">
+            {doneCount > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
+                {doneCount} done
+              </span>
+            )}
+            {activeCount > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+                {activeCount} active
+              </span>
+            )}
+            {errorCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">
+                {errorCount} failed
+              </span>
+            )}
+          </div>
         </div>
         <button
           onClick={onClear}
-          className="text-xs text-[var(--text-secondary)] hover:text-white transition-colors"
+          className="text-xs text-[var(--text-secondary)] hover:text-red-400 transition-colors"
         >
           Clear All
         </button>
@@ -81,7 +93,11 @@ export default function DownloadQueue({ downloads, onClear }) {
         {downloads.map((d) => (
           <div
             key={d.job_id}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--bg-secondary)]"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+              d.status === "error"
+                ? "bg-red-500/5 border border-red-500/10"
+                : "bg-[var(--bg-secondary)]"
+            }`}
           >
             {statusIcon(d.status)}
             <div className="flex-1 min-w-0">
@@ -102,7 +118,9 @@ export default function DownloadQueue({ downloads, onClear }) {
                 <div className="mt-1.5 space-y-1">
                   <div className="w-full h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-brand-500 transition-all duration-300"
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        d.status === "downloading" ? "progress-shimmer" : "bg-brand-500"
+                      }`}
                       style={{ width: `${Math.min(100, Math.max(0, (d.progress || 0) * 100))}%` }}
                     />
                   </div>
@@ -116,52 +134,55 @@ export default function DownloadQueue({ downloads, onClear }) {
                 </div>
               )}
               {d.error && (
-                <p className="text-xs text-red-400 truncate">{d.error}</p>
+                <p className="text-xs text-red-400 truncate mt-0.5">{d.error}</p>
               )}
               {d.skipped_reason && (
-                <p className="text-xs text-yellow-400 truncate">{d.skipped_reason}</p>
+                <p className="text-xs text-yellow-400 truncate mt-0.5">{d.skipped_reason}</p>
               )}
             </div>
             {/* BPM / Key / Camelot / Normalized / Quality badges */}
-            {(d.status === "done" || d.status === "skipped") && d.bpm && (
-              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 flex-shrink-0">
-                {d.bpm} BPM
-              </span>
-            )}
-            {(d.status === "done" || d.status === "skipped") && d.camelot && (
-              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
-                {d.camelot}
-              </span>
-            )}
-            {d.status === "done" && d.normalized && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 flex-shrink-0">
-                NORM
-              </span>
-            )}
-            {d.status === "done" && (
-              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                d.quality === "flac"
-                  ? "bg-amber-500/15 text-amber-400"
-                  : "bg-green-500/15 text-green-400"
-              }`}>
-                {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
-              </span>
-            )}
-            {d.status === "done" && d.filename && (
-              <a
-                href={apiUrl(`/api/download-file/${d.job_id}`)}
-                download
-                className="w-6 h-6 rounded-full bg-brand-500/20 flex items-center justify-center flex-shrink-0 hover:bg-brand-500/40 transition-colors"
-                title="Save to Downloads"
-              >
-                <svg className="w-3.5 h-3.5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
-                </svg>
-              </a>
-            )}
-            {d.status === "skipped" && (
-              <span className="text-xs text-yellow-400 flex-shrink-0">DUP</span>
-            )}
+            <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+              {(d.status === "done" || d.status === "skipped") && d.bpm && (
+                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400">
+                  {d.bpm} BPM
+                </span>
+              )}
+              {(d.status === "done" || d.status === "skipped") && d.camelot && (
+                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                  {d.camelot}
+                </span>
+              )}
+              {d.status === "done" && d.normalized && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">
+                  NORM
+                </span>
+              )}
+              {d.status === "done" && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                  d.quality === "flac"
+                    ? "bg-amber-500/15 text-amber-400"
+                    : "bg-green-500/15 text-green-400"
+                }`}>
+                  {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
+                </span>
+              )}
+              {d.status === "done" && d.filename && (
+                <a
+                  href={apiUrl(`/api/download-file/${d.job_id}`)}
+                  download
+                  className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center hover:bg-brand-500/40 transition-colors"
+                  title="Save to Downloads"
+                  aria-label={`Download ${d.title}`}
+                >
+                  <svg className="w-3.5 h-3.5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+                  </svg>
+                </a>
+              )}
+              {d.status === "skipped" && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400">DUP</span>
+              )}
+            </div>
           </div>
         ))}
       </div>
