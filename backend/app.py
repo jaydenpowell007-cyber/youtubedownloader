@@ -143,6 +143,13 @@ class SearchResultResponse(BaseModel):
     source: str
 
 
+class SearchResponseWrapper(BaseModel):
+    results: list[SearchResultResponse]
+    parsed_bpm: Optional[int] = None
+    parsed_key: Optional[str] = None
+    cleaned_query: str = ""
+
+
 class SpotifyTrackResponse(BaseModel):
     title: str
     artist: str
@@ -396,24 +403,34 @@ async def api_info(req: DownloadRequest):
     }
 
 
-@app.post("/api/search", response_model=list[SearchResultResponse])
+@app.post("/api/search", response_model=SearchResponseWrapper)
 async def api_search(req: SearchRequest):
-    """Search YouTube and/or SoundCloud for music using natural language."""
+    """Search YouTube and/or SoundCloud for music using natural language.
+
+    BPM and key references (e.g. "140BPM", "key of Am") are parsed out of
+    the query so the search engine matches on artist/title, not literal
+    metadata terms that only appear in beat/instrumental titles.
+    """
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
+        response = await loop.run_in_executor(
             executor, lambda: search(req.query, req.platform, req.max_results)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return [
-        SearchResultResponse(
-            title=r.title, url=r.url, duration=r.duration,
-            channel=r.channel, thumbnail=r.thumbnail, source=r.source,
-        )
-        for r in results
-    ]
+    return SearchResponseWrapper(
+        results=[
+            SearchResultResponse(
+                title=r.title, url=r.url, duration=r.duration,
+                channel=r.channel, thumbnail=r.thumbnail, source=r.source,
+            )
+            for r in response.results
+        ],
+        parsed_bpm=response.parsed_bpm,
+        parsed_key=response.parsed_key,
+        cleaned_query=response.cleaned_query,
+    )
 
 
 # --- Spotify Import ---

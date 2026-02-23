@@ -104,7 +104,17 @@ def cmd_search(args):
     print(f"  Platform:  {platform}")
     print()
 
-    results = search(query, platform, max_results)
+    response = search(query, platform, max_results)
+    results = response.results
+
+    if response.parsed_bpm or response.parsed_key:
+        extras = []
+        if response.parsed_bpm:
+            extras.append(f"{response.parsed_bpm} BPM")
+        if response.parsed_key:
+            extras.append(f"Key: {response.parsed_key}")
+        print(f"  Detected: {', '.join(extras)}  (searching: \"{response.cleaned_query}\")")
+        print()
 
     if not results:
         print("  No results found.")
@@ -219,12 +229,12 @@ def cmd_spotify(args):
     quality = args.quality
     for t in selected:
         print(f"  Searching: {t.search_query}")
-        results = search(t.search_query, platform, 1)
-        if not results:
+        response = search(t.search_query, platform, 1)
+        if not response.results:
             print(f"  [SKIP]  Not found: {t.artist} — {t.title}")
             continue
 
-        job = download_single(results[0].url, output, quality=quality)
+        job = download_single(response.results[0].url, output, quality=quality)
         _print_job_result(job)
 
     print()
