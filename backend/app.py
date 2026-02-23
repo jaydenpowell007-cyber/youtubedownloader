@@ -3,10 +3,12 @@
 import asyncio
 import json
 import os
+import shutil
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -15,6 +17,7 @@ from backend.config import DOWNLOADS_DIR
 from backend.downloader import (
     download,
     download_single,
+    download_for_separation,
     get_job_status,
     extract_info,
     is_multi_track,
@@ -24,12 +27,15 @@ from backend.downloader import (
     start_download_batch,
     register_ws_listener,
     unregister_ws_listener,
+    _set_job,
+    DownloadProgress,
     QUALITY_OPTIONS,
 )
 from backend.search import search
 from backend.spotify import get_playlist_tracks
 from backend.history import get_history, get_history_count, delete_entry
 from backend.rekordbox import generate_rekordbox_xml
+from backend.separator import separate_stems, create_stems_zip, check_audio_quality
 from backend import settings as user_settings
 
 app = FastAPI(title="MP3 Downloader — DJ Edition", version="5.0.0")
@@ -117,6 +123,17 @@ class SettingsUpdateRequest(BaseModel):
     settings: dict
 
 
+class StemRequest(BaseModel):
+    url: str
+    quality: str = "320"
+    stems: list[str] = ["vocals", "drums", "bass", "other"]
+
+
+class StemUploadResponse(BaseModel):
+    job_id: str
+    quality_warning: Optional[str] = None
+
+
 class JobStatus(BaseModel):
     job_id: str
     status: str
@@ -132,6 +149,7 @@ class JobStatus(BaseModel):
     skipped_reason: Optional[str] = None
     quality: str = "320"
     format_type: str = "mp3"
+    stems: Optional[dict] = None
 
 
 class SearchResultResponse(BaseModel):
@@ -197,6 +215,7 @@ def _job_to_status(j) -> JobStatus:
         skipped_reason=getattr(j, "skipped_reason", None),
         quality=getattr(j, "quality", "320"),
         format_type=getattr(j, "format_type", "mp3"),
+        stems=getattr(j, "stems", None),
     )
 
 
@@ -665,6 +684,148 @@ async def api_export_rekordbox():
         filepath,
         media_type="application/xml",
         filename="rekordbox_collection.xml",
+    )
+
+
+# --- Stem Separation ---
+
+
+def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems: list[str], original_path: str):
+    """Background worker for stem separation."""
+    from backend.errors import SeparationError
+
+    try:
+        # Separating stems
+        job.status = "separating"
+        job.progress = 50.0
+        _set_job(job)
+
+        stem_dir = tempfile.mkdtemp(prefix="stems_")
+        stem_paths = separate_stems(audio_path, stem_dir)
+
+        # Zipping
+        job.status = "zipping"
+        job.progress = 90.0
+        _set_job(job)
+
+        zip_path = create_stems_zip(
+            stem_paths=stem_paths,
+            selected_stems=selected_stems,
+            track_title=job.title or "track",
+            original_path=original_path,
+            output_dir=tempfile.gettempdir(),
+        )
+
+        job.filename = zip_path
+        job.stems = {
+            "selected": selected_stems,
+            "available": list(stem_paths.keys()),
+            "zip_path": zip_path,
+        }
+        job.status = "done"
+        job.progress = 100.0
+        job.format_type = "zip"
+
+    except SeparationError as e:
+        job.status = "error"
+        job.error = str(e)
+    except Exception as e:
+        job.status = "error"
+        job.error = f"Separation failed: {e}"
+    finally:
+        _set_job(job)
+
+
+@app.post("/api/stems/start", response_model=JobStatus)
+async def api_stems_start(req: StemRequest):
+    """Start stem separation from a URL. Downloads audio then separates."""
+    loop = asyncio.get_event_loop()
+
+    try:
+        job, audio_path = await loop.run_in_executor(
+            executor, lambda: download_for_separation(req.url, quality=req.quality)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Run separation in background
+    executor.submit(_run_stem_separation, job, audio_path, req.stems, audio_path)
+
+    return _job_to_status(job)
+
+
+@app.post("/api/stems/upload", response_model=JobStatus)
+async def api_stems_upload(
+    file: UploadFile = File(...),
+    stems: str = Form(default="vocals,drums,bass,other"),
+):
+    """Upload an audio file for stem separation."""
+    import uuid
+
+    # Save uploaded file to temp location
+    suffix = os.path.splitext(file.filename or "upload.mp3")[1] or ".mp3"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir())
+    try:
+        content = await file.read()
+        tmp.write(content)
+        tmp.close()
+    except Exception as e:
+        tmp.close()
+        os.unlink(tmp.name)
+        raise HTTPException(status_code=400, detail=f"Failed to save upload: {e}")
+
+    # Check audio quality
+    quality_info = check_audio_quality(tmp.name)
+
+    # Parse stems list
+    selected_stems = [s.strip() for s in stems.split(",") if s.strip()]
+
+    # Create job
+    title = os.path.splitext(file.filename or "Uploaded Track")[0]
+    job = DownloadProgress(
+        job_id=str(uuid.uuid4()),
+        source="upload",
+        title=title,
+        quality="original",
+        format_type="zip",
+    )
+    if quality_info.get("warning"):
+        job.stems = {"quality_warning": quality_info["warning"]}
+    _set_job(job)
+
+    # Run separation in background
+    executor.submit(_run_stem_separation, job, tmp.name, selected_stems, tmp.name)
+
+    return _job_to_status(job)
+
+
+@app.get("/api/stems/download/{job_id}")
+async def api_stems_download(job_id: str, background_tasks: BackgroundTasks):
+    """Download the ZIP result of a stem separation job."""
+    job = get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "done":
+        raise HTTPException(status_code=400, detail=f"Job not ready (status: {job.status})")
+    if not job.filename or not os.path.exists(job.filename):
+        raise HTTPException(status_code=404, detail="ZIP file not found on server")
+
+    # Schedule cleanup after response
+    zip_path = job.filename
+
+    def cleanup():
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except OSError:
+            pass
+
+    background_tasks.add_task(cleanup)
+
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=os.path.basename(zip_path),
     )
 
 

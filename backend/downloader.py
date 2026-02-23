@@ -31,7 +31,7 @@ _bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
 @dataclass
 class DownloadProgress:
     job_id: str
-    status: str = "queued"  # queued | downloading | converting | normalizing | analyzing | done | error | skipped
+    status: str = "queued"  # queued | downloading | converting | normalizing | analyzing | separating | zipping | done | error | skipped
     title: str = ""
     progress: float = 0.0
     filename: Optional[str] = None
@@ -44,6 +44,7 @@ class DownloadProgress:
     skipped_reason: Optional[str] = None
     quality: str = "320"
     format_type: str = "mp3"  # mp3 | flac
+    stems: Optional[dict] = None  # stem separation info (stem names, zip path, etc.)
 
 
 # In-memory job tracker (keyed by job_id)
@@ -82,6 +83,7 @@ def _notify_ws(job: DownloadProgress):
                     "skipped_reason": job.skipped_reason,
                     "quality": job.quality,
                     "format_type": job.format_type,
+                    "stems": job.stems,
                 })
             except Exception:
                 dead.append(q)
@@ -616,3 +618,67 @@ def download(
     if is_multi_track(url):
         return download_multi(url, output_dir, quality, filename_template, normalize)
     return [download_single(url, output_dir, quality=quality, filename_template=filename_template, normalize=normalize)]
+
+
+def download_for_separation(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "320",
+) -> tuple[DownloadProgress, str]:
+    """Download audio for stem separation (no normalize/analyze/tag pipeline).
+
+    Returns:
+        Tuple of (job, audio_file_path)
+    """
+    codec, ext = _resolve_quality(quality)
+    dest = output_dir or DOWNLOADS_DIR
+    Path(dest).mkdir(parents=True, exist_ok=True)
+
+    fmt_type = "flac" if quality == "flac" else "mp3"
+    job = DownloadProgress(
+        job_id=str(uuid.uuid4()),
+        source=detect_source(url),
+        quality=quality,
+        format_type=fmt_type,
+    )
+    _set_job(job)
+
+    bitrate = quality if quality != "flac" else "0"
+    clean_url = _clean_url(url)
+    opts = {
+        "format": "bestaudio/best",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": codec,
+                "preferredquality": bitrate,
+            }
+        ],
+        "outtmpl": os.path.join(dest, "%(title)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "progress_hooks": [_progress_hook(job)],
+        "retries": 3,
+        "fragment_retries": 3,
+        "file_access_retries": 3,
+        "extractor_retries": 3,
+    }
+
+    try:
+        def _download():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(clean_url, download=True)
+
+        info = _retry(_download, description=f"download {url}")
+        job.title = info.get("title", "Unknown")
+        job.filename = os.path.join(dest, f"{info.get('title', 'Unknown')}.{ext}")
+        job.status = "converting"
+        job.progress = 100.0
+        _set_job(job)
+        return job, job.filename
+
+    except Exception as e:
+        job.status = "error"
+        job.error = str(e)
+        _set_job(job)
+        raise

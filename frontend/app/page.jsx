@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import DownloadTab from "../components/DownloadTab";
 import SearchTab from "../components/SearchTab";
 import SpotifyTab from "../components/SpotifyTab";
+import StemsTab from "../components/StemsTab";
 import HistoryTab from "../components/HistoryTab";
 import SettingsTab from "../components/SettingsTab";
 import DownloadQueue from "../components/DownloadQueue";
@@ -31,6 +32,11 @@ const TAB_ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
+  stems: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.121 14.121A3 3 0 109.88 9.88m4.242 4.242L9.88 9.88m4.242 4.242L18 18m-8.121-8.121L6 6" />
+    </svg>
+  ),
   settings: (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -43,6 +49,7 @@ const TABS = [
   { id: "download", label: "Download" },
   { id: "search", label: "Search" },
   { id: "spotify", label: "Spotify" },
+  { id: "stems", label: "Stems" },
   { id: "history", label: "History" },
   { id: "settings", label: "Settings" },
 ];
@@ -100,10 +107,14 @@ export default function Home() {
     downloads.forEach((d) => {
       if (d.status === "done" && d.filename && !downloadedJobIds.current.has(d.job_id)) {
         downloadedJobIds.current.add(d.job_id);
-        addToast(`Downloaded: ${d.title || "Track"}`, "success");
+        const isStemsJob = d.stems && d.format_type === "zip";
+        addToast(
+          isStemsJob ? `Stems ready: ${d.title || "Track"}` : `Downloaded: ${d.title || "Track"}`,
+          "success"
+        );
         // Trigger browser download via hidden anchor
         const a = document.createElement("a");
-        a.href = apiUrl(`/api/download-file/${d.job_id}`);
+        a.href = apiUrl(isStemsJob ? `/api/stems/download/${d.job_id}` : `/api/download-file/${d.job_id}`);
         a.download = "";
         document.body.appendChild(a);
         a.click();
@@ -331,6 +342,13 @@ export default function Home() {
                 onQualityChange={handleQualityChange}
               />
             )}
+            {activeTab === "stems" && (
+              <StemsTab
+                onDownload={addDownloads}
+                quality={quality}
+                onQualityChange={handleQualityChange}
+              />
+            )}
             {activeTab === "history" && <HistoryTab />}
             {activeTab === "settings" && (
               <SettingsTab
@@ -355,7 +373,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-[var(--text-secondary)]">
           <span>Downloads are saved to your browser&apos;s Downloads folder</span>
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline">Supports YouTube &amp; SoundCloud</span>
+            <span className="hidden sm:inline">YouTube, SoundCloud &amp; Stem Separation</span>
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
               Connected

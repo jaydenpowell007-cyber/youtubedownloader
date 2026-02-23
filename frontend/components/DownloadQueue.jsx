@@ -47,6 +47,7 @@ export default function DownloadQueue({ downloads, onClear }) {
   const activeCount = downloads.filter((d) => isActive(d.status)).length;
 
   const formatLabel = (d) => {
+    if (d.format_type === "zip") return "ZIP";
     if (d.format_type === "flac" || d.quality === "flac") return "FLAC";
     return `MP3`;
   };
@@ -107,9 +108,11 @@ export default function DownloadQueue({ downloads, onClear }) {
                   <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
                     d.source === "soundcloud"
                       ? "bg-orange-500/15 text-orange-400"
-                      : "bg-red-500/15 text-red-400"
+                      : d.source === "upload"
+                        ? "bg-violet-500/15 text-violet-400"
+                        : "bg-red-500/15 text-red-400"
                   }`}>
-                    {d.source === "soundcloud" ? "SC" : "YT"}
+                    {d.source === "soundcloud" ? "SC" : d.source === "upload" ? "UP" : "YT"}
                   </span>
                 )}
               </div>
@@ -128,8 +131,10 @@ export default function DownloadQueue({ downloads, onClear }) {
                     {d.status === "downloading" && `Downloading... ${Math.round((d.progress || 0) * 100)}%`}
                     {d.status === "normalizing" && "Normalizing audio levels..."}
                     {d.status === "analyzing" && "Analyzing BPM & key..."}
+                    {d.status === "separating" && "Separating stems (this may take a minute)..."}
+                    {d.status === "zipping" && "Packaging stems into ZIP..."}
                     {d.status === "pending" && "Queued..."}
-                    {!["downloading", "normalizing", "analyzing", "pending"].includes(d.status) && isActive(d.status) && "Processing..."}
+                    {!["downloading", "normalizing", "analyzing", "separating", "zipping", "pending"].includes(d.status) && isActive(d.status) && "Processing..."}
                   </p>
                 </div>
               )}
@@ -159,19 +164,26 @@ export default function DownloadQueue({ downloads, onClear }) {
               )}
               {d.status === "done" && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                  d.quality === "flac"
-                    ? "bg-amber-500/15 text-amber-400"
-                    : "bg-green-500/15 text-green-400"
+                  d.format_type === "zip"
+                    ? "bg-violet-500/15 text-violet-400"
+                    : d.quality === "flac"
+                      ? "bg-amber-500/15 text-amber-400"
+                      : "bg-green-500/15 text-green-400"
                 }`}>
                   {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
                 </span>
               )}
+              {d.status === "done" && d.stems && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">
+                  STEMS
+                </span>
+              )}
               {d.status === "done" && d.filename && (
                 <a
-                  href={apiUrl(`/api/download-file/${d.job_id}`)}
+                  href={apiUrl(d.stems ? `/api/stems/download/${d.job_id}` : `/api/download-file/${d.job_id}`)}
                   download
                   className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center hover:bg-brand-500/40 transition-colors"
-                  title="Save to Downloads"
+                  title={d.stems ? "Download Stems ZIP" : "Save to Downloads"}
                   aria-label={`Download ${d.title}`}
                 >
                   <svg className="w-3.5 h-3.5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

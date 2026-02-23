@@ -38,3 +38,8 @@ class AnalysisError(DownloaderError):
 class TaggingError(DownloaderError):
     """ID3 tagging failed."""
     pass
+
+
+class SeparationError(DownloaderError):
+    """Stem separation (Demucs) failed."""
+    pass
