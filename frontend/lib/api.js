@@ -1,7 +1,12 @@
 /**
- * API URL utility for constructing correct backend URLs in both
- * development (relative URLs via Next.js rewrites) and production
- * (direct calls to the backend).
+ * API URL utility.
+ *
+ * HTTP requests use relative URLs (e.g. "/api/info") which are proxied
+ * to the backend by Next.js rewrites (configured in next.config.js).
+ * This avoids CORS issues entirely — the browser sees same-origin requests.
+ *
+ * WebSocket connections need a direct URL to the backend since Vercel
+ * edge rewrites don't reliably proxy WebSocket upgrades.
  *
  * Set NEXT_PUBLIC_API_URL on Vercel to your Railway backend URL,
  * e.g. "https://your-app.up.railway.app"
@@ -10,18 +15,18 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 /**
- * Construct a full API URL.
- * - Dev: returns relative path like "/api/info" (proxied by Next.js rewrites)
- * - Prod: returns full URL like "https://backend.railway.app/api/info"
+ * Returns the path as-is for HTTP requests.
+ * All HTTP calls go through Next.js rewrites (server-side proxy),
+ * so no CORS headers are needed.
  */
 export function apiUrl(path) {
-  return `${API_BASE}${path}`;
+  return path;
 }
 
 /**
  * Construct a WebSocket URL for the backend.
- * - Dev: uses current host with ws:// protocol
- * - Prod: derives ws(s):// URL from NEXT_PUBLIC_API_URL
+ * - Dev: uses current host with ws:// protocol (proxied by Next.js rewrites)
+ * - Prod: derives ws(s):// URL from NEXT_PUBLIC_API_URL (direct connection)
  */
 export function wsUrl(path) {
   if (API_BASE) {
