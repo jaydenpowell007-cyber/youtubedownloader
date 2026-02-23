@@ -36,7 +36,11 @@ app = FastAPI(title="MP3 Downloader — DJ Edition", version="5.0.0")
 
 # CORS: configurable via env, defaults to localhost dev
 _cors_origins = os.environ.get(
-    "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "https://youtubedownloader-red.vercel.app,"
+    "https://youtubedownloader-git-main-jaydens-projects-b3bceb91.vercel.app,"
+    "https://youtubedownloader-d191lwvaa-jaydens-projects-b3bceb91.vercel.app",
 ).split(",")
 
 app.add_middleware(
