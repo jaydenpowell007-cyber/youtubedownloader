@@ -6,7 +6,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -333,6 +333,34 @@ def api_poll_jobs(req: PollJobsRequest):
         if job:
             results.append(_job_to_status(job))
     return results
+
+
+@app.get("/api/download-file/{job_id}")
+async def api_download_file(job_id: str, background_tasks: BackgroundTasks):
+    """Serve a completed download file to the browser, then delete it from the server."""
+    job = get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "done":
+        raise HTTPException(status_code=400, detail=f"Job not ready (status: {job.status})")
+    if not job.filename or not os.path.exists(job.filename):
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    # Schedule file deletion after response is sent
+    def cleanup():
+        try:
+            if os.path.exists(job.filename):
+                os.remove(job.filename)
+        except OSError:
+            pass
+
+    background_tasks.add_task(cleanup)
+
+    return FileResponse(
+        job.filename,
+        media_type="application/octet-stream",
+        filename=os.path.basename(job.filename),
+    )
 
 
 @app.post("/api/info")
