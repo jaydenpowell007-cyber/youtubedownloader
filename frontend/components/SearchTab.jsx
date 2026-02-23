@@ -18,6 +18,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
+  const [parsedMeta, setParsedMeta] = useState(null);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -25,6 +26,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
     setError("");
     setResults([]);
     setSelected(new Set());
+    setParsedMeta(null);
 
     try {
       const res = await fetch(apiUrl("/api/search"), {
@@ -37,7 +39,14 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
         throw new Error(data.detail || "Search failed");
       }
       const data = await res.json();
-      setResults(data);
+      setResults(data.results || []);
+      if (data.parsed_bpm || data.parsed_key) {
+        setParsedMeta({
+          bpm: data.parsed_bpm,
+          key: data.parsed_key,
+          cleaned: data.cleaned_query,
+        });
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -151,6 +160,28 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             {error}
+          </div>
+        )}
+
+        {parsedMeta && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-brand-600/10 border border-brand-500/20 text-sm">
+            <svg className="w-4 h-4 flex-shrink-0 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-[var(--text-secondary)]">
+              Searching for <span className="text-white font-medium">&ldquo;{parsedMeta.cleaned}&rdquo;</span>
+              {parsedMeta.bpm && (
+                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-brand-600/20 text-brand-300 text-xs font-medium">
+                  {parsedMeta.bpm} BPM
+                </span>
+              )}
+              {parsedMeta.key && (
+                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-brand-600/20 text-brand-300 text-xs font-medium">
+                  {parsedMeta.key}
+                </span>
+              )}
+              <span className="ml-1 text-[var(--text-secondary)]"> &mdash; BPM/key detected after download</span>
+            </span>
           </div>
         )}
       </div>
