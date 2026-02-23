@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import QualitySelector from "./QualitySelector";
+import { apiUrl } from "../lib/api";
 
 const PLATFORMS = [
   { value: "all", label: "All" },
@@ -26,7 +27,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
     setSelected(new Set());
 
     try {
-      const res = await fetch("/api/search", {
+      const res = await fetch(apiUrl("/api/search"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, platform, max_results: 10 }),
@@ -69,7 +70,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
     setError("");
 
     try {
-      const res = await fetch("/api/download-selected/start", {
+      const res = await fetch(apiUrl("/api/download-selected/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls, quality }),

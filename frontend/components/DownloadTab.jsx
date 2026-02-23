@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import QualitySelector from "./QualitySelector";
+import { apiUrl } from "../lib/api";
 
 export default function DownloadTab({ onDownload, quality, onQualityChange }) {
   const [url, setUrl] = useState("");
@@ -28,7 +29,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
     setInfo(null);
 
     try {
-      const res = await fetch("/api/info", {
+      const res = await fetch(apiUrl("/api/info"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim() }),
@@ -59,7 +60,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
         ? { urls, quality }
         : { url: urls[0], quality };
 
-      const res = await fetch(endpoint, {
+      const res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
