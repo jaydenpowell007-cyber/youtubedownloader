@@ -54,7 +54,7 @@ export default function SettingsTab({ settings, onSettingsChange }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-6 card-hover">
+      <div className="deck-panel rounded-2xl p-6 space-y-6">
         <div>
           <h2 className="text-base font-semibold">Settings</h2>
           <p className="text-sm text-[var(--text-secondary)]">
@@ -148,8 +148,8 @@ export default function SettingsTab({ settings, onSettingsChange }) {
                 onClick={() => update("filename_template", preset.value)}
                 className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${
                   localSettings.filename_template === preset.value
-                    ? "bg-brand-600/15 border border-brand-500/30"
-                    : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
+                    ? "deck-item-selected"
+                    : "deck-item"
                 }`}
               >
                 <div>
@@ -168,8 +168,8 @@ export default function SettingsTab({ settings, onSettingsChange }) {
             <div
               className={`p-3 rounded-xl transition-all ${
                 !isPreset
-                  ? "bg-brand-600/15 border border-brand-500/30"
-                  : "bg-[var(--bg-secondary)] border border-transparent"
+                  ? "deck-item-selected"
+                  : "deck-item"
               }`}
             >
               <p className="text-sm font-medium mb-2">Custom template</p>
@@ -187,7 +187,7 @@ export default function SettingsTab({ settings, onSettingsChange }) {
                   }
                 }}
                 placeholder="{artist} - {title} [{bpm}BPM]"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-sm font-mono placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-colors"
+                className="w-full px-3 py-2 rounded-lg deck-input text-sm font-mono placeholder-[var(--text-secondary)] focus:outline-none transition-colors"
               />
             </div>
           </div>

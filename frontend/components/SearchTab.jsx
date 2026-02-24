@@ -100,7 +100,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 card-hover">
+      <div className="deck-panel rounded-2xl p-6 space-y-4">
         <h2 className="text-base font-semibold">Search for Music</h2>
         <p className="text-sm text-[var(--text-secondary)]">
           Describe what you&apos;re looking for — searches YouTube and SoundCloud
@@ -114,7 +114,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
               onClick={() => setPlatform(p.value)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 platform === p.value
-                  ? "bg-brand-600 text-white"
+                  ? "bg-[#06d6a0] text-black"
                   : "text-[var(--text-secondary)] hover:text-white"
               }`}
             >
@@ -136,14 +136,14 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder='e.g. "Don Toliver songs with a bpm of 140"'
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-all"
+              className="w-full pl-10 pr-4 py-3 rounded-xl deck-input text-sm placeholder-[var(--text-secondary)] focus:outline-none transition-all"
               aria-label="Search for music"
             />
           </div>
           <button
             onClick={handleSearch}
             disabled={loading || !query.trim()}
-            className="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
+            className="px-6 py-3 rounded-xl bg-[#06d6a0] hover:bg-[#05c090] text-black disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
           >
             {loading ? (
               <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -164,19 +164,19 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
         )}
 
         {parsedMeta && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-brand-600/10 border border-brand-500/20 text-sm">
-            <svg className="w-4 h-4 flex-shrink-0 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#06d6a0]/10 border border-[#06d6a0]/20 text-sm">
+            <svg className="w-4 h-4 flex-shrink-0 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span className="text-[var(--text-secondary)]">
               Searching for <span className="text-white font-medium">&ldquo;{parsedMeta.cleaned}&rdquo;</span>
               {parsedMeta.bpm && (
-                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-brand-600/20 text-brand-300 text-xs font-medium">
+                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-[#06d6a0]/20 text-brand-300 text-xs font-medium">
                   {parsedMeta.bpm} BPM
                 </span>
               )}
               {parsedMeta.key && (
-                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-brand-600/20 text-brand-300 text-xs font-medium">
+                <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-md bg-[#06d6a0]/20 text-brand-300 text-xs font-medium">
                   {parsedMeta.key}
                 </span>
               )}
@@ -188,14 +188,14 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
 
       {/* Search Results */}
       {results.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
+        <div className="deck-panel-flush rounded-2xl p-6 space-y-4 animate-slide-up">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
               {results.length} Results
             </h3>
             <button
               onClick={selectAll}
-              className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              className="text-xs text-[#06d6a0] hover:text-[#05c090] transition-colors"
             >
               {selected.size === results.length ? "Deselect All" : "Select All"}
             </button>
@@ -208,15 +208,15 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
                 onClick={() => toggleSelect(i)}
                 className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-all ${
                   selected.has(i)
-                    ? "bg-brand-600/15 border border-brand-500/30"
-                    : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
+                    ? "deck-item-selected"
+                    : "deck-item"
                 }`}
               >
                 {/* Checkbox */}
                 <div
                   className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
                     selected.has(i)
-                      ? "bg-brand-600 border-brand-600"
+                      ? "bg-[#06d6a0] border-[#06d6a0]"
                       : "border-[var(--border)]"
                   }`}
                 >
@@ -262,7 +262,7 @@ export default function SearchTab({ onDownload, quality, onQualityChange }) {
               <button
                 onClick={handleDownloadSelected}
                 disabled={downloading}
-                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#06d6a0] to-[#04a47a] hover:from-[#05c090] hover:to-[#06d6a0] text-black shadow-[0_0_20px_rgba(6,214,160,0.2)] disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
               >
                 {downloading
                   ? "Downloading..."

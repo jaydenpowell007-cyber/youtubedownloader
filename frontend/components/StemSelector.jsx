@@ -116,7 +116,7 @@ export default function StemSelector({ selected, onChange }) {
         <div className="flex gap-2">
           <button
             onClick={selectAll}
-            className="text-[10px] text-brand-400 hover:text-brand-300 transition-colors"
+            className="text-[10px] text-[#06d6a0] hover:text-[#05c090] transition-colors"
           >
             Select All
           </button>

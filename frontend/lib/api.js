@@ -12,7 +12,7 @@
  * e.g. "https://your-app.up.railway.app"
  */
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
 
 /**
  * Returns the path as-is for HTTP requests.
@@ -28,6 +28,20 @@ export function apiUrl(path) {
  * - Dev: uses current host with ws:// protocol (proxied by Next.js rewrites)
  * - Prod: derives ws(s):// URL from NEXT_PUBLIC_API_URL (direct connection)
  */
+/**
+ * Safely parse a JSON response, falling back to the raw text if the
+ * body isn't valid JSON (e.g. a plain-text "Request Entity Too Large"
+ * from a reverse proxy).
+ */
+export async function safeJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text };
+  }
+}
+
 export function wsUrl(path) {
   if (API_BASE) {
     // Production: derive WebSocket URL from the API base

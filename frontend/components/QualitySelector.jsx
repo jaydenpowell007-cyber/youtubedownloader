@@ -21,7 +21,7 @@ export default function QualitySelector({ quality, onChange }) {
               quality === q.value
                 ? q.value === "flac"
                   ? "bg-amber-600 text-white"
-                  : "bg-brand-600 text-white"
+                  : "bg-[#06d6a0] text-black"
                 : "text-[var(--text-secondary)] hover:text-white"
             }`}
             title={`${q.label} kbps — ${q.desc}`}

@@ -218,7 +218,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 card-hover">
+      <div className="deck-panel rounded-2xl p-6 space-y-4">
         <h2 className="text-base font-semibold">Import from Spotify</h2>
         <p className="text-sm text-[var(--text-secondary)]">
           Paste a Spotify playlist URL — tracks will be matched on YouTube and downloaded with Spotify metadata
@@ -237,7 +237,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && fetchTracks()}
               placeholder="https://open.spotify.com/playlist/..."
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-green-500 transition-all"
+              className="w-full pl-10 pr-4 py-3 rounded-xl deck-input text-sm placeholder-[var(--text-secondary)] focus:outline-none transition-all"
               aria-label="Spotify playlist URL"
             />
           </div>
@@ -267,7 +267,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
 
       {/* Track List */}
       {tracks.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
+        <div className="deck-panel-flush rounded-2xl p-6 space-y-4 animate-slide-up">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
               {tracks.length} Tracks
@@ -277,7 +277,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
             </h3>
             <button
               onClick={selectAll}
-              className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              className="text-xs text-[#06d6a0] hover:text-[#05c090] transition-colors"
             >
               {selected.size === tracks.length ? "Deselect All" : "Select All"}
             </button>
@@ -290,15 +290,15 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
                   onClick={() => toggleSelect(i)}
                   className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-all ${
                     selected.has(i)
-                      ? "bg-brand-600/15 border border-brand-500/30"
-                      : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
+                      ? "deck-item-selected"
+                      : "deck-item"
                   }`}
                 >
                   {/* Checkbox */}
                   <div
                     className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
                       selected.has(i)
-                        ? "bg-brand-600 border-brand-600"
+                        ? "bg-[#06d6a0] border-[#06d6a0]"
                         : "border-[var(--border)]"
                     }`}
                   >
@@ -343,8 +343,8 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
                         onClick={() => changeMatch(i, mi)}
                         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-xs transition-all ${
                           matchResults[i].selectedMatch === mi
-                            ? "bg-green-600/15 border border-green-500/30"
-                            : "bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border)]"
+                            ? "deck-item-selected"
+                            : "deck-item"
                         }`}
                       >
                         <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
@@ -392,7 +392,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
                   <button
                     onClick={handleFindMatches}
                     disabled={matching}
-                    className="flex-1 px-6 py-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] hover:border-brand-500 text-sm font-semibold transition-all"
+                    className="flex-1 px-6 py-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] hover:border-[#06d6a0]/50 text-sm font-semibold transition-all"
                   >
                     {matching ? "Finding matches..." : "Preview Matches"}
                   </button>
@@ -400,7 +400,7 @@ export default function SpotifyTab({ onDownload, quality, onQualityChange }) {
                 <button
                   onClick={handleDownload}
                   disabled={downloading}
-                  className={`${matchResults ? "w-full" : "flex-1"} px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse`}
+                  className={`${matchResults ? "w-full" : "flex-1"} px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#06d6a0] to-[#04a47a] hover:from-[#05c090] hover:to-[#06d6a0] text-black shadow-[0_0_20px_rgba(6,214,160,0.2)] disabled:opacity-40 text-sm font-semibold transition-all glow-pulse`}
                 >
                   {downloading
                     ? "Downloading..."

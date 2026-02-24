@@ -66,9 +66,10 @@ export default function ToastContainer({ toasts, onRemove }) {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-sm shadow-lg cursor-pointer transition-all ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-md shadow-lg cursor-pointer transition-all ${
             BG_COLORS[toast.type] || BG_COLORS.info
           } ${toast.exiting ? "toast-exit" : "toast-enter"}`}
+          style={{ backdropFilter: 'blur(12px) saturate(1.3)' }}
           onClick={() => onRemove(toast.id)}
         >
           <div className="flex-shrink-0">

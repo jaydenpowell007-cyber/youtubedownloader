@@ -84,7 +84,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 card-hover">
+      <div className="deck-panel rounded-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold">
@@ -102,7 +102,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
               setInfo(null);
               setError("");
             }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-white hover:border-brand-500/50 transition-all"
+            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-white hover:border-[#06d6a0]/50 transition-all"
           >
             {batchMode ? "Single URL" : "Batch Mode"}
           </button>
@@ -117,13 +117,13 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
               onChange={(e) => handleUrlChange(e.target.value)}
               placeholder={"Paste URLs here — one per line\nhttps://youtube.com/watch?v=...\nhttps://soundcloud.com/..."}
               rows={5}
-              className="w-full px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-all resize-y font-mono"
+              className="w-full px-4 py-3 rounded-xl deck-input text-sm placeholder-[var(--text-secondary)] focus:outline-none transition-all resize-y font-mono"
             />
             {urlCount > 0 && (
               <button
                 onClick={handleDownload}
                 disabled={loading}
-                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+                className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#06d6a0] to-[#04a47a] hover:from-[#05c090] hover:to-[#06d6a0] text-black shadow-[0_0_20px_rgba(6,214,160,0.2)] disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -153,14 +153,14 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
                 onChange={(e) => handleUrlChange(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
                 placeholder="YouTube or SoundCloud URL (videos, playlists, sets)"
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-all"
+                className="w-full pl-10 pr-4 py-3 rounded-xl deck-input text-sm placeholder-[var(--text-secondary)] focus:outline-none transition-all"
                 aria-label="Enter a YouTube or SoundCloud URL"
               />
             </div>
             <button
               onClick={fetchInfo}
               disabled={loading || !url.trim()}
-              className="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
+              className="px-6 py-3 rounded-xl bg-[#06d6a0] hover:bg-[#05c090] text-black disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-all"
             >
               {loading ? (
                 <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -184,7 +184,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
 
       {/* Preview (single URL mode only) */}
       {info && !batchMode && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
+        <div className="deck-panel rounded-2xl p-6 space-y-4 animate-slide-up">
           <div className="flex items-start gap-4">
             {info.thumbnail && (
               <div className="relative flex-shrink-0">
@@ -245,7 +245,7 @@ export default function DownloadTab({ onDownload, quality, onQualityChange }) {
           <button
             onClick={handleDownload}
             disabled={loading}
-            className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
+            className="w-full px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#06d6a0] to-[#04a47a] hover:from-[#05c090] hover:to-[#06d6a0] text-black shadow-[0_0_20px_rgba(6,214,160,0.2)] disabled:opacity-40 text-sm font-semibold transition-all glow-pulse"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">

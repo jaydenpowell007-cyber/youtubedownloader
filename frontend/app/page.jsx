@@ -270,12 +270,12 @@ export default function Home() {
   const activeDownloadCount = downloads.filter((d) => !TERMINAL_STATUSES.has(d.status)).length;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-grid-pattern">
       {/* Header */}
       <header className="header-glass border-b border-[var(--border)] px-6 py-4 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center font-bold text-lg shadow-lg shadow-brand-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#06d6a0] to-[#8338ec] flex items-center justify-center font-bold text-lg shadow-[0_0_20px_rgba(6,214,160,0.3)]">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
               </svg>
@@ -284,14 +284,14 @@ export default function Home() {
               <h1 className="text-lg font-semibold tracking-tight">
                 MP3 Downloader
               </h1>
-              <p className="text-xs text-[var(--text-secondary)]">
+              <p className="text-xs font-medium bg-gradient-to-r from-[#06d6a0] to-[#ff006e] bg-clip-text text-transparent">
                 DJ Edition
               </p>
             </div>
           </div>
           {activeDownloadCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-500/10 border border-brand-500/20">
-              <div className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#06d6a0]/10 border border-[#06d6a0]/20">
+              <div className="w-2 h-2 rounded-full bg-[#06d6a0] animate-pulse" />
               <span className="text-xs font-medium text-brand-300">
                 {activeDownloadCount} active
               </span>
@@ -304,7 +304,7 @@ export default function Home() {
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-8">
         <div className="max-w-5xl mx-auto space-y-6 sm:space-y-8">
           {/* Tabs */}
-          <nav className="flex gap-1 p-1 rounded-xl bg-[var(--bg-secondary)] w-full sm:w-fit overflow-x-auto scrollbar-hide" role="tablist" aria-label="Main navigation">
+          <nav className="flex gap-0 w-full sm:w-fit overflow-x-auto scrollbar-hide border-b border-[var(--border)]" role="tablist" aria-label="Main navigation">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -312,14 +312,18 @@ export default function Home() {
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 aria-controls={`tabpanel-${tab.id}`}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-1 sm:flex-none justify-center sm:justify-start ${
+                className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all whitespace-nowrap flex-1 sm:flex-none justify-center sm:justify-start ${
                   activeTab === tab.id
-                    ? "bg-brand-600 text-white shadow-lg shadow-brand-600/20"
-                    : "text-[var(--text-secondary)] hover:text-white hover:bg-white/[0.03]"
+                    ? "text-white"
+                    : "text-[var(--text-secondary)] hover:text-white/80"
                 }`}
+                style={activeTab === tab.id ? { textShadow: "0 0 12px rgba(6, 214, 160, 0.5)" } : undefined}
               >
                 {TAB_ICONS[tab.id]}
                 <span className="hidden sm:inline">{tab.label}</span>
+                {activeTab === tab.id && (
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-[#06d6a0] rounded-full shadow-[0_0_8px_rgba(6,214,160,0.6)]" />
+                )}
               </button>
             ))}
           </nav>
@@ -380,7 +384,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline">YouTube, SoundCloud &amp; Stem Separation</span>
             <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#06d6a0]" />
               Connected
             </span>
           </div>

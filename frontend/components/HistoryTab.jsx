@@ -95,7 +95,7 @@ export default function HistoryTab() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 card-hover">
+      <div className="deck-panel rounded-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold">Download History</h2>
@@ -141,7 +141,7 @@ export default function HistoryTab() {
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder="Search by title or artist..."
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm placeholder-[var(--text-secondary)] focus:outline-none focus:border-brand-500 transition-all"
+              className="w-full pl-10 pr-4 py-3 rounded-xl deck-input text-sm placeholder-[var(--text-secondary)] focus:outline-none transition-all"
               aria-label="Search download history"
             />
           </div>
@@ -171,12 +171,12 @@ export default function HistoryTab() {
 
       {/* Results */}
       {entries.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
+        <div className="deck-panel-flush rounded-2xl p-6 space-y-4 animate-slide-up">
           <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2">
             {entries.map((e) => (
               <div
                 key={e.id}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--bg-secondary)]"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl deck-item"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -239,7 +239,7 @@ export default function HistoryTab() {
       )}
 
       {!loading && entries.length === 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-12 text-center space-y-4">
+        <div className="deck-panel rounded-2xl p-12 text-center space-y-4">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-[var(--bg-secondary)] flex items-center justify-center">
             {search ? (
               <svg className="w-7 h-7 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

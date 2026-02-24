@@ -7,8 +7,8 @@ export default function DownloadQueue({ downloads, onClear }) {
     switch (status) {
       case "done":
         return (
-          <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <div className="w-6 h-6 rounded-full bg-[#06d6a0]/20 flex items-center justify-center flex-shrink-0 shadow-[0_0_8px_rgba(6,214,160,0.3)]">
+            <svg className="w-3.5 h-3.5 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
@@ -31,8 +31,8 @@ export default function DownloadQueue({ downloads, onClear }) {
         );
       default:
         return (
-          <div className="w-6 h-6 rounded-full bg-brand-500/20 flex items-center justify-center flex-shrink-0 animate-pulse">
-            <div className="w-2.5 h-2.5 rounded-full bg-brand-400" />
+          <div className="w-6 h-6 rounded-full bg-[#06d6a0]/20 flex items-center justify-center flex-shrink-0 animate-pulse">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#06d6a0]" />
           </div>
         );
     }
@@ -59,19 +59,19 @@ export default function DownloadQueue({ downloads, onClear }) {
   };
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 animate-slide-up">
+    <div className="deck-panel-flush rounded-2xl p-6 space-y-4 animate-slide-up">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h3 className="text-sm font-semibold">Downloads</h3>
           <div className="flex items-center gap-2 text-[10px] font-medium">
             {doneCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#06d6a0]/10 text-[#06d6a0]">
                 {doneCount} done
               </span>
             )}
             {activeCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#06d6a0]/10 text-brand-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#06d6a0] animate-pulse" />
                 {activeCount} active
               </span>
             )}
@@ -97,7 +97,7 @@ export default function DownloadQueue({ downloads, onClear }) {
             className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
               d.status === "error"
                 ? "bg-red-500/5 border border-red-500/10"
-                : "bg-[var(--bg-secondary)]"
+                : "deck-item"
             }`}
           >
             {statusIcon(d.status)}
@@ -122,7 +122,7 @@ export default function DownloadQueue({ downloads, onClear }) {
                   <div className="w-full h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-300 ${
-                        d.status === "downloading" ? "progress-shimmer" : "bg-brand-500"
+                        d.status === "downloading" ? "progress-shimmer" : "bg-[#06d6a0]"
                       }`}
                       style={{ width: `${Math.min(100, Math.max(0, (d.progress || 0) * 100))}%` }}
                     />
@@ -158,7 +158,7 @@ export default function DownloadQueue({ downloads, onClear }) {
                 </span>
               )}
               {d.status === "done" && d.normalized && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#8338ec]/15 text-[#8338ec]">
                   NORM
                 </span>
               )}
@@ -168,13 +168,13 @@ export default function DownloadQueue({ downloads, onClear }) {
                     ? "bg-violet-500/15 text-violet-400"
                     : d.quality === "flac"
                       ? "bg-amber-500/15 text-amber-400"
-                      : "bg-green-500/15 text-green-400"
+                      : "bg-[#06d6a0]/15 text-[#06d6a0]"
                 }`}>
                   {formatLabel(d)}{qualityLabel(d) ? ` ${qualityLabel(d)}` : ""}
                 </span>
               )}
               {d.status === "done" && d.stems && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#ff006e]/15 text-[#ff006e]">
                   STEMS
                 </span>
               )}
@@ -182,11 +182,11 @@ export default function DownloadQueue({ downloads, onClear }) {
                 <a
                   href={apiUrl(d.stems ? `/api/stems/download/${d.job_id}` : `/api/download-file/${d.job_id}`)}
                   download
-                  className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center hover:bg-brand-500/40 transition-colors"
+                  className="w-7 h-7 rounded-full bg-[#06d6a0]/20 flex items-center justify-center hover:bg-[#06d6a0]/40 transition-colors"
                   title={d.stems ? "Download Stems ZIP" : "Save to Downloads"}
                   aria-label={`Download ${d.title}`}
                 >
-                  <svg className="w-3.5 h-3.5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <svg className="w-3.5 h-3.5 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
                   </svg>
                 </a>

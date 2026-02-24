@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import StemSelector from "./StemSelector";
 import QualitySelector from "./QualitySelector";
-import { apiUrl } from "../lib/api";
+import { apiUrl, safeJson, API_BASE } from "../lib/api";
 
 export default function StemsTab({ onDownload, quality, onQualityChange }) {
   const [mode, setMode] = useState("url"); // url | upload
@@ -42,7 +42,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
         }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await safeJson(res);
         throw new Error(data.detail || "Failed to start separation");
       }
       const job = await res.json();
@@ -67,12 +67,16 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
       formData.append("file", file);
       formData.append("stems", selectedStems.join(","));
 
-      const res = await fetch(apiUrl("/api/stems/upload"), {
+      // Send directly to backend — bypasses Vercel's 4.5MB body limit
+      const uploadUrl = API_BASE
+        ? `${API_BASE}/api/stems/upload`
+        : apiUrl("/api/stems/upload");
+      const res = await fetch(uploadUrl, {
         method: "POST",
         body: formData,
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await safeJson(res);
         throw new Error(data.detail || "Failed to upload file");
       }
       const job = await res.json();
@@ -105,11 +109,11 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-6">
+      <div className="deck-panel rounded-2xl p-6 space-y-6">
         {/* Header */}
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <svg className="w-5 h-5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-5 h-5 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M14.121 14.121A3 3 0 109.88 9.88m4.242 4.242L9.88 9.88m4.242 4.242L18 18m-8.121-8.121L6 6" />
             </svg>
             Stem Separation
@@ -125,7 +129,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
             onClick={() => setMode("url")}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
               mode === "url"
-                ? "bg-brand-600 text-white"
+                ? "bg-[#06d6a0] text-black"
                 : "text-[var(--text-secondary)] hover:text-white"
             }`}
           >
@@ -135,7 +139,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
             onClick={() => setMode("upload")}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
               mode === "upload"
-                ? "bg-brand-600 text-white"
+                ? "bg-[#06d6a0] text-black"
                 : "text-[var(--text-secondary)] hover:text-white"
             }`}
           >
@@ -158,7 +162,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && canSubmit && handleUrlSubmit()}
                 placeholder="Paste YouTube, SoundCloud, or Spotify URL..."
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-sm focus:border-brand-500/50 focus:ring-1 focus:ring-brand-500/20 outline-none transition-all"
+                className="w-full pl-10 pr-4 py-3 rounded-xl deck-input text-sm outline-none transition-all"
               />
               {source && (
                 <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
@@ -180,7 +184,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
         {mode === "upload" && (
           <div className="space-y-3">
             <label
-              className="flex flex-col items-center gap-3 px-6 py-8 rounded-xl border-2 border-dashed border-[var(--border)] hover:border-brand-500/50 transition-colors cursor-pointer"
+              className="flex flex-col items-center gap-3 px-6 py-8 rounded-xl deck-dropzone cursor-pointer"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -193,8 +197,8 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
                 }
               }}
             >
-              <div className="w-12 h-12 rounded-full bg-brand-500/10 flex items-center justify-center">
-                <svg className="w-6 h-6 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <div className="w-12 h-12 rounded-full bg-[#06d6a0]/10 flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
               </div>
@@ -206,7 +210,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
               ) : (
                 <div className="text-center">
                   <p className="text-sm text-[var(--text-secondary)]">
-                    Drop an audio file here or <span className="text-brand-400">browse</span>
+                    Drop an audio file here or <span className="text-[#06d6a0]">browse</span>
                   </p>
                   <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">MP3, WAV, FLAC, M4A</p>
                 </div>
@@ -249,7 +253,7 @@ export default function StemsTab({ onDownload, quality, onQualityChange }) {
         <button
           onClick={mode === "url" ? handleUrlSubmit : handleFileUpload}
           disabled={!canSubmit}
-          className="w-full py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-600/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+          className="w-full py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2 bg-[#06d6a0] hover:bg-[#05c090] text-black shadow-lg shadow-[#06d6a0]/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
         >
           {loading ? (
             <>
