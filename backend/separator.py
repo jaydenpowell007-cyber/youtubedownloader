@@ -33,8 +33,11 @@ torch.set_num_threads(_MAX_TORCH_THREADS)
 torch.set_num_interop_threads(2)
 
 # Segment length in seconds for chunked processing.
-# Smaller = less peak memory/CPU, but slightly lower quality at boundaries.
-_SEGMENT_SECONDS = float(os.environ.get("DEMUCS_SEGMENT", "10"))
+# None = use model default (7.8s for htdemucs). The model's transformer
+# architecture requires this exact size, so only override if you know
+# what you're doing.
+_SEGMENT_OVERRIDE = os.environ.get("DEMUCS_SEGMENT")
+_SEGMENT_SECONDS = float(_SEGMENT_OVERRIDE) if _SEGMENT_OVERRIDE else None
 
 # Overlap ratio between segments (0-1). Higher = smoother transitions.
 _OVERLAP = float(os.environ.get("DEMUCS_OVERLAP", "0.25"))
@@ -123,9 +126,10 @@ def separate_stems(
     # Estimate expected processing time for progress (rough: ~0.5x-1x realtime on CPU)
     estimated_time = max(30.0, duration_sec * 0.7)
 
+    seg_label = f"{_SEGMENT_SECONDS:.1f}s" if _SEGMENT_SECONDS else "model-default"
     logger.info(
-        "Starting inference: %.1fs audio, segment=%.1fs, overlap=%.2f, threads=%d, timeout=%ds",
-        duration_sec, _SEGMENT_SECONDS, _OVERLAP, _MAX_TORCH_THREADS, _TIMEOUT_SECONDS,
+        "Starting inference: %.1fs audio, segment=%s, overlap=%.2f, threads=%d, timeout=%ds",
+        duration_sec, seg_label, _OVERLAP, _MAX_TORCH_THREADS, _TIMEOUT_SECONDS,
     )
 
     start_time = time.monotonic()
