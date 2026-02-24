@@ -1,5 +1,6 @@
 """Demucs-powered stem separation engine."""
 
+import concurrent.futures
 import logging
 import os
 import tempfile
@@ -59,36 +60,20 @@ def _get_model():
     return _model
 
 
-class _SeparationProgress:
-    """Tracks Demucs inference progress and enforces a timeout.
-
-    Passed as the `callback` arg to demucs apply_model(). Called after
-    each audio segment is processed, allowing us to:
-    1. Report real-time progress to the frontend via WebSocket
-    2. Abort stuck jobs by raising SeparationError on timeout
-    """
-
-    def __init__(self, timeout_seconds: float, job_progress_fn: Optional[Callable] = None):
-        self.start_time = time.monotonic()
-        self.timeout_seconds = timeout_seconds
-        self.job_progress_fn = job_progress_fn
-        self.calls = 0
-
-    def __call__(self, info: dict):
-        self.calls += 1
-        elapsed = time.monotonic() - self.start_time
-
-        if self.calls % 2 == 0:
-            logger.info("Demucs progress: step %d (%.1fs elapsed)", self.calls, elapsed)
-
-        if self.job_progress_fn:
-            self.job_progress_fn(self.calls, elapsed)
-
-        if elapsed > self.timeout_seconds:
-            raise SeparationError(
-                f"Stem separation timed out after {int(elapsed)}s "
-                f"(limit: {self.timeout_seconds}s). Try a shorter track."
-            )
+def _run_apply_model(model, wav, segment, overlap):
+    """Run apply_model in the current thread (used as a Future target)."""
+    with torch.no_grad():
+        return apply_model(
+            model,
+            wav,
+            device="cpu",
+            segment=segment,
+            overlap=overlap,
+            shifts=1,
+            split=True,
+            progress=True,
+            num_workers=0,
+        )
 
 
 def separate_stems(
@@ -101,7 +86,7 @@ def separate_stems(
     Args:
         audio_path: Path to the input audio file (MP3, WAV, FLAC, etc.)
         output_dir: Directory to write individual stem files
-        job_progress_fn: Optional callback(step, elapsed_secs) for progress updates
+        job_progress_fn: Optional callback(progress_pct, elapsed_secs) for updates
 
     Returns:
         Dict mapping stem name -> file path, e.g. {"vocals": "/tmp/.../vocals.wav", ...}
@@ -135,36 +120,54 @@ def separate_stems(
     # Add batch dimension: (1, channels, samples)
     wav = wav.unsqueeze(0)
 
+    # Estimate expected processing time for progress (rough: ~0.5x-1x realtime on CPU)
+    estimated_time = max(30.0, duration_sec * 0.7)
+
     logger.info(
         "Starting inference: %.1fs audio, segment=%.1fs, overlap=%.2f, threads=%d, timeout=%ds",
         duration_sec, _SEGMENT_SECONDS, _OVERLAP, _MAX_TORCH_THREADS, _TIMEOUT_SECONDS,
     )
 
-    progress_tracker = _SeparationProgress(
-        timeout_seconds=_TIMEOUT_SECONDS,
-        job_progress_fn=job_progress_fn,
-    )
+    start_time = time.monotonic()
+
+    # Run inference in a thread so we can enforce a timeout and push progress
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="demucs")
+    future = pool.submit(_run_apply_model, model, wav, _SEGMENT_SECONDS, _OVERLAP)
 
     try:
-        with torch.no_grad():
-            sources = apply_model(
-                model,
-                wav,
-                device="cpu",
-                segment=_SEGMENT_SECONDS,
-                overlap=_OVERLAP,
-                shifts=1,
-                split=True,
-                progress=False,
-                num_workers=0,
-                callback=progress_tracker,
-            )
+        # Poll for completion, pushing progress updates every 3 seconds
+        while True:
+            try:
+                sources = future.result(timeout=3.0)
+                break  # Done
+            except concurrent.futures.TimeoutError:
+                elapsed = time.monotonic() - start_time
+
+                # Time-based progress estimate (0-95%)
+                progress_pct = min(95.0, (elapsed / estimated_time) * 100.0)
+
+                logger.info(
+                    "Demucs running: %.0fs elapsed (est. %.0fs total), ~%.0f%%",
+                    elapsed, estimated_time, progress_pct,
+                )
+
+                if job_progress_fn:
+                    job_progress_fn(progress_pct, elapsed)
+
+                if elapsed > _TIMEOUT_SECONDS:
+                    future.cancel()
+                    raise SeparationError(
+                        f"Stem separation timed out after {int(elapsed)}s "
+                        f"(limit: {_TIMEOUT_SECONDS}s). Try a shorter track."
+                    )
     except SeparationError:
         raise
     except Exception as e:
         raise SeparationError(f"Demucs separation failed: {e}")
+    finally:
+        pool.shutdown(wait=False)
 
-    elapsed = time.monotonic() - progress_tracker.start_time
+    elapsed = time.monotonic() - start_time
     logger.info("Inference complete: %.1fs audio processed in %.1fs", duration_sec, elapsed)
 
     # sources shape: (1, num_sources, 2, samples)

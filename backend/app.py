@@ -700,12 +700,9 @@ def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems:
     logger = logging.getLogger(__name__)
     from backend.errors import SeparationError
 
-    def _on_progress(step: int, elapsed: float):
-        """Map Demucs callback progress into the 50-90% job range."""
-        # We don't know total steps upfront, so use elapsed time heuristic:
-        # most 3-5 min tracks finish within 60-180s on 4-thread CPU.
-        estimated_pct = min(95.0, step * 5.0)
-        job.progress = round(50.0 + (estimated_pct / 100.0) * 40.0, 1)
+    def _on_progress(progress_pct: float, elapsed: float):
+        """Map Demucs progress (0-95%) into job progress (50-90%)."""
+        job.progress = round(50.0 + (progress_pct / 100.0) * 40.0, 1)
         _set_job(job)
 
     try:
