@@ -7,6 +7,10 @@ from typing import Optional
 
 import torch
 import torchaudio
+try:
+    torchaudio.set_audio_backend("soundfile")
+except RuntimeError:
+    pass  # Older torchaudio versions may not need this
 from demucs.apply import apply_model
 from demucs.pretrained import get_model
 
