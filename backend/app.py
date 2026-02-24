@@ -691,17 +691,21 @@ async def api_export_rekordbox():
 
 
 def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems: list[str], original_path: str):
-    """Background worker for stem separation."""
+    """Background worker for stem separation (after download is complete)."""
+    import logging
+    logger = logging.getLogger(__name__)
     from backend.errors import SeparationError
 
     try:
         # Separating stems
+        logger.info("Starting stem separation for job %s: %s", job.job_id, job.title)
         job.status = "separating"
         job.progress = 50.0
         _set_job(job)
 
         stem_dir = tempfile.mkdtemp(prefix="stems_")
         stem_paths = separate_stems(audio_path, stem_dir)
+        logger.info("Stem separation complete for job %s, stems: %s", job.job_id, list(stem_paths.keys()))
 
         # Zipping
         job.status = "zipping"
@@ -725,31 +729,61 @@ def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems:
         job.status = "done"
         job.progress = 100.0
         job.format_type = "zip"
+        logger.info("Stems ZIP ready for job %s: %s", job.job_id, zip_path)
 
     except SeparationError as e:
+        logger.error("Separation error for job %s: %s", job.job_id, e)
         job.status = "error"
         job.error = str(e)
     except Exception as e:
+        logger.error("Unexpected error during separation for job %s: %s", job.job_id, e, exc_info=True)
         job.status = "error"
         job.error = f"Separation failed: {e}"
     finally:
         _set_job(job)
 
 
-@app.post("/api/stems/start", response_model=JobStatus)
-async def api_stems_start(req: StemRequest):
-    """Start stem separation from a URL. Downloads audio then separates."""
-    loop = asyncio.get_event_loop()
+def _run_stem_pipeline(job: DownloadProgress, url: str, quality: str, selected_stems: list[str]):
+    """Background worker for the full stem pipeline: download → separate → zip.
+
+    Runs entirely in the background so the API can return immediately.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
 
     try:
-        job, audio_path = await loop.run_in_executor(
-            executor, lambda: download_for_separation(req.url, quality=req.quality)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Phase 1: Download audio
+        logger.info("Starting stem download for job %s: %s", job.job_id, url)
+        _, audio_path = download_for_separation(url, quality=quality, job=job)
+        logger.info("Download complete for job %s: %s → %s", job.job_id, job.title, audio_path)
 
-    # Run separation in background
-    executor.submit(_run_stem_separation, job, audio_path, req.stems, audio_path)
+        # Phase 2+3: Separate stems and create ZIP
+        _run_stem_separation(job, audio_path, selected_stems, audio_path)
+
+    except Exception as e:
+        logger.error("Stem pipeline failed for job %s: %s", job.job_id, e, exc_info=True)
+        job.status = "error"
+        job.error = str(e)
+        _set_job(job)
+
+
+@app.post("/api/stems/start", response_model=JobStatus)
+async def api_stems_start(req: StemRequest):
+    """Start stem separation from a URL. Returns immediately; work runs in background."""
+    import uuid
+
+    # Create job upfront so we can return it immediately
+    job = DownloadProgress(
+        job_id=str(uuid.uuid4()),
+        source=detect_source(req.url),
+        quality=req.quality,
+        format_type="zip",
+        status="downloading",
+    )
+    _set_job(job)
+
+    # Submit entire pipeline (download + separation) to background
+    executor.submit(_run_stem_pipeline, job, req.url, req.quality, req.stems)
 
     return _job_to_status(job)
 

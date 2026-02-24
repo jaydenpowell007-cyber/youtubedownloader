@@ -624,8 +624,15 @@ def download_for_separation(
     url: str,
     output_dir: Optional[str] = None,
     quality: str = "320",
+    job: Optional[DownloadProgress] = None,
 ) -> tuple[DownloadProgress, str]:
     """Download audio for stem separation (no normalize/analyze/tag pipeline).
+
+    Args:
+        url: URL to download from
+        output_dir: Output directory (defaults to DOWNLOADS_DIR)
+        quality: Audio quality setting
+        job: Optional pre-created job to use (for non-blocking API flow)
 
     Returns:
         Tuple of (job, audio_file_path)
@@ -635,12 +642,14 @@ def download_for_separation(
     Path(dest).mkdir(parents=True, exist_ok=True)
 
     fmt_type = "flac" if quality == "flac" else "mp3"
-    job = DownloadProgress(
-        job_id=str(uuid.uuid4()),
-        source=detect_source(url),
-        quality=quality,
-        format_type=fmt_type,
-    )
+    if job is None:
+        job = DownloadProgress(
+            job_id=str(uuid.uuid4()),
+            source=detect_source(url),
+            quality=quality,
+            format_type=fmt_type,
+        )
+    job.status = "downloading"
     _set_job(job)
 
     bitrate = quality if quality != "flac" else "0"

@@ -124,17 +124,19 @@ export default function DownloadQueue({ downloads, onClear }) {
                       className={`h-full rounded-full transition-all duration-300 ${
                         d.status === "downloading" ? "progress-shimmer" : "bg-[#06d6a0]"
                       }`}
-                      style={{ width: `${Math.min(100, Math.max(0, (d.progress || 0) * 100))}%` }}
+                      style={{ width: `${Math.min(100, Math.max(0, d.progress || 0))}%` }}
                     />
                   </div>
                   <p className="text-[10px] text-[var(--text-secondary)]">
-                    {d.status === "downloading" && `Downloading... ${Math.round((d.progress || 0) * 100)}%`}
+                    {d.status === "downloading" && `Downloading... ${Math.round(d.progress || 0)}%`}
+                    {d.status === "converting" && "Converting audio..."}
                     {d.status === "normalizing" && "Normalizing audio levels..."}
                     {d.status === "analyzing" && "Analyzing BPM & key..."}
                     {d.status === "separating" && "Separating stems (this may take a minute)..."}
                     {d.status === "zipping" && "Packaging stems into ZIP..."}
+                    {d.status === "queued" && "Queued..."}
                     {d.status === "pending" && "Queued..."}
-                    {!["downloading", "normalizing", "analyzing", "separating", "zipping", "pending"].includes(d.status) && isActive(d.status) && "Processing..."}
+                    {!["downloading", "converting", "normalizing", "analyzing", "separating", "zipping", "queued", "pending"].includes(d.status) && isActive(d.status) && "Processing..."}
                   </p>
                 </div>
               )}
