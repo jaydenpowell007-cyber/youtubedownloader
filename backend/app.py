@@ -66,6 +66,10 @@ app.add_middleware(
 
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Dedicated executor for stem separation — only 1 concurrent job to prevent
+# CPU/memory contention that causes Railway to kill the process.
+stem_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stems")
+
 
 # --- Request / Response models ---
 
@@ -696,6 +700,14 @@ def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems:
     logger = logging.getLogger(__name__)
     from backend.errors import SeparationError
 
+    def _on_progress(step: int, elapsed: float):
+        """Map Demucs callback progress into the 50-90% job range."""
+        # We don't know total steps upfront, so use elapsed time heuristic:
+        # most 3-5 min tracks finish within 60-180s on 4-thread CPU.
+        estimated_pct = min(95.0, step * 5.0)
+        job.progress = round(50.0 + (estimated_pct / 100.0) * 40.0, 1)
+        _set_job(job)
+
     try:
         # Separating stems
         logger.info("Starting stem separation for job %s: %s", job.job_id, job.title)
@@ -704,7 +716,7 @@ def _run_stem_separation(job: DownloadProgress, audio_path: str, selected_stems:
         _set_job(job)
 
         stem_dir = tempfile.mkdtemp(prefix="stems_")
-        stem_paths = separate_stems(audio_path, stem_dir)
+        stem_paths = separate_stems(audio_path, stem_dir, job_progress_fn=_on_progress)
         logger.info("Stem separation complete for job %s, stems: %s", job.job_id, list(stem_paths.keys()))
 
         # Zipping
@@ -782,8 +794,8 @@ async def api_stems_start(req: StemRequest):
     )
     _set_job(job)
 
-    # Submit entire pipeline (download + separation) to background
-    executor.submit(_run_stem_pipeline, job, req.url, req.quality, req.stems)
+    # Submit entire pipeline (download + separation) to dedicated stem executor
+    stem_executor.submit(_run_stem_pipeline, job, req.url, req.quality, req.stems)
 
     return _job_to_status(job)
 
@@ -827,8 +839,8 @@ async def api_stems_upload(
         job.stems = {"quality_warning": quality_info["warning"]}
     _set_job(job)
 
-    # Run separation in background
-    executor.submit(_run_stem_separation, job, tmp.name, selected_stems, tmp.name)
+    # Run separation in dedicated stem executor (max 1 concurrent)
+    stem_executor.submit(_run_stem_separation, job, tmp.name, selected_stems, tmp.name)
 
     return _job_to_status(job)
 
