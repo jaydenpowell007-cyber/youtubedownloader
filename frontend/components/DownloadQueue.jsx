@@ -132,7 +132,7 @@ export default function DownloadQueue({ downloads, onClear }) {
                     {d.status === "converting" && "Converting audio..."}
                     {d.status === "normalizing" && "Normalizing audio levels..."}
                     {d.status === "analyzing" && "Analyzing BPM & key..."}
-                    {d.status === "separating" && "Separating stems (this may take a minute)..."}
+                    {d.status === "separating" && `Separating stems... ${Math.round(d.progress || 0)}%`}
                     {d.status === "zipping" && "Packaging stems into ZIP..."}
                     {d.status === "queued" && "Queued..."}
                     {d.status === "pending" && "Queued..."}

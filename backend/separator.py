@@ -3,8 +3,9 @@
 import logging
 import os
 import tempfile
+import time
 import zipfile
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 import torchaudio
@@ -32,11 +33,16 @@ torch.set_num_interop_threads(2)
 
 # Segment length in seconds for chunked processing.
 # Smaller = less peak memory/CPU, but slightly lower quality at boundaries.
-# Default 30s balances quality vs. resource usage on 8GB servers.
-_SEGMENT_SECONDS = int(os.environ.get("DEMUCS_SEGMENT", "30"))
+_SEGMENT_SECONDS = float(os.environ.get("DEMUCS_SEGMENT", "10"))
 
 # Overlap ratio between segments (0-1). Higher = smoother transitions.
 _OVERLAP = float(os.environ.get("DEMUCS_OVERLAP", "0.25"))
+
+# Maximum allowed audio duration in seconds (guard against hour-long files).
+_MAX_DURATION_SECONDS = int(os.environ.get("DEMUCS_MAX_DURATION", "600"))
+
+# Timeout for the entire separation inference in seconds.
+_TIMEOUT_SECONDS = int(os.environ.get("DEMUCS_TIMEOUT", "300"))
 
 
 def _get_model():
@@ -53,15 +59,52 @@ def _get_model():
     return _model
 
 
-def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
+class _SeparationProgress:
+    """Tracks Demucs inference progress and enforces a timeout.
+
+    Passed as the `callback` arg to demucs apply_model(). Called after
+    each audio segment is processed, allowing us to:
+    1. Report real-time progress to the frontend via WebSocket
+    2. Abort stuck jobs by raising SeparationError on timeout
+    """
+
+    def __init__(self, timeout_seconds: float, job_progress_fn: Optional[Callable] = None):
+        self.start_time = time.monotonic()
+        self.timeout_seconds = timeout_seconds
+        self.job_progress_fn = job_progress_fn
+        self.calls = 0
+
+    def __call__(self, info: dict):
+        self.calls += 1
+        elapsed = time.monotonic() - self.start_time
+
+        if self.calls % 2 == 0:
+            logger.info("Demucs progress: step %d (%.1fs elapsed)", self.calls, elapsed)
+
+        if self.job_progress_fn:
+            self.job_progress_fn(self.calls, elapsed)
+
+        if elapsed > self.timeout_seconds:
+            raise SeparationError(
+                f"Stem separation timed out after {int(elapsed)}s "
+                f"(limit: {self.timeout_seconds}s). Try a shorter track."
+            )
+
+
+def separate_stems(
+    audio_path: str,
+    output_dir: str,
+    job_progress_fn: Optional[Callable] = None,
+) -> dict[str, str]:
     """Run Demucs stem separation on an audio file.
 
     Args:
         audio_path: Path to the input audio file (MP3, WAV, FLAC, etc.)
         output_dir: Directory to write individual stem files
+        job_progress_fn: Optional callback(step, elapsed_secs) for progress updates
 
     Returns:
-        Dict mapping stem name → file path, e.g. {"vocals": "/tmp/.../vocals.wav", ...}
+        Dict mapping stem name -> file path, e.g. {"vocals": "/tmp/.../vocals.wav", ...}
     """
     model = _get_model()
 
@@ -72,6 +115,7 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
 
     # Resample to model's expected sample rate if needed
     if sr != model.samplerate:
+        logger.info("Resampling from %d to %d Hz", sr, model.samplerate)
         wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
 
     # Ensure stereo (model expects 2 channels)
@@ -80,13 +124,25 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
     elif wav.shape[0] > 2:
         wav = wav[:2]
 
+    duration_sec = wav.shape[-1] / model.samplerate
+
+    if duration_sec > _MAX_DURATION_SECONDS:
+        raise SeparationError(
+            f"Audio is {duration_sec:.0f}s long (max {_MAX_DURATION_SECONDS}s). "
+            f"Please trim it before separating."
+        )
+
     # Add batch dimension: (1, channels, samples)
     wav = wav.unsqueeze(0)
 
-    duration_sec = wav.shape[-1] / model.samplerate
     logger.info(
-        "Starting inference: %.1fs audio, segment=%ds, overlap=%.2f, threads=%d",
-        duration_sec, _SEGMENT_SECONDS, _OVERLAP, _MAX_TORCH_THREADS,
+        "Starting inference: %.1fs audio, segment=%.1fs, overlap=%.2f, threads=%d, timeout=%ds",
+        duration_sec, _SEGMENT_SECONDS, _OVERLAP, _MAX_TORCH_THREADS, _TIMEOUT_SECONDS,
+    )
+
+    progress_tracker = _SeparationProgress(
+        timeout_seconds=_TIMEOUT_SECONDS,
+        job_progress_fn=job_progress_fn,
     )
 
     try:
@@ -99,13 +155,17 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
                 overlap=_OVERLAP,
                 shifts=1,
                 split=True,
-                progress=True,
+                progress=False,
                 num_workers=0,
+                callback=progress_tracker,
             )
+    except SeparationError:
+        raise
     except Exception as e:
         raise SeparationError(f"Demucs separation failed: {e}")
 
-    logger.info("Inference complete for %.1fs audio.", duration_sec)
+    elapsed = time.monotonic() - progress_tracker.start_time
+    logger.info("Inference complete: %.1fs audio processed in %.1fs", duration_sec, elapsed)
 
     # sources shape: (1, num_sources, 2, samples)
     # model.sources = ['drums', 'bass', 'other', 'vocals']
@@ -117,6 +177,9 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
         path = os.path.join(output_dir, f"{name}.wav")
         torchaudio.save(path, stem, model.samplerate, backend=_AUDIO_BACKEND)
         stem_paths[name] = path
+
+    # Free large tensors promptly
+    del sources, wav
 
     return stem_paths
 
@@ -150,7 +213,7 @@ def create_stems_zip(
     """Package selected stems into a ZIP file.
 
     Args:
-        stem_paths: Dict mapping stem name → file path (from separate_stems)
+        stem_paths: Dict mapping stem name -> file path (from separate_stems)
         selected_stems: List of stem names to include. Special values:
             "instrumental" = drums+bass+other mixed together
             "original" = include the original full track
