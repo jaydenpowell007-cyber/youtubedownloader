@@ -7,12 +7,13 @@ from typing import Optional
 
 import torch
 import torchaudio
-try:
-    torchaudio.set_audio_backend("soundfile")
-except RuntimeError:
-    pass  # Older torchaudio versions may not need this
 from demucs.apply import apply_model
 from demucs.pretrained import get_model
+
+# torchaudio 2.5+ removed set_audio_backend() and changed default backend
+# selection. Instead of relying on the global setting, we pass
+# backend="soundfile" directly to load()/save() calls below.
+_AUDIO_BACKEND = "soundfile"
 
 from backend.errors import SeparationError
 
@@ -45,7 +46,7 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
     model = _get_model()
 
     try:
-        wav, sr = torchaudio.load(audio_path)
+        wav, sr = torchaudio.load(audio_path, backend=_AUDIO_BACKEND)
     except Exception as e:
         raise SeparationError(f"Failed to load audio file: {e}")
 
@@ -76,7 +77,7 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
     for i, name in enumerate(model.sources):
         stem = sources[0, i]  # (2, samples)
         path = os.path.join(output_dir, f"{name}.wav")
-        torchaudio.save(path, stem, model.samplerate)
+        torchaudio.save(path, stem, model.samplerate, backend=_AUDIO_BACKEND)
         stem_paths[name] = path
 
     return stem_paths
@@ -88,7 +89,7 @@ def _mix_stems(stem_paths: dict[str, str], names: list[str], output_path: str, s
     for name in names:
         if name not in stem_paths:
             continue
-        wav, _ = torchaudio.load(stem_paths[name])
+        wav, _ = torchaudio.load(stem_paths[name], backend=_AUDIO_BACKEND)
         if mixed is None:
             mixed = wav
         else:
@@ -97,7 +98,7 @@ def _mix_stems(stem_paths: dict[str, str], names: list[str], output_path: str, s
     if mixed is None:
         raise SeparationError("No stems available to mix for instrumental")
 
-    torchaudio.save(output_path, mixed, sample_rate)
+    torchaudio.save(output_path, mixed, sample_rate, backend=_AUDIO_BACKEND)
     return output_path
 
 
