@@ -8,6 +8,8 @@ librosa==0.11.0
 mutagen==1.47.0
 websockets==14.1
 numpy<2
+torch>=2.0.0,<2.6
+torchaudio>=2.0.0,<2.6
 demucs==4.0.1
 soundfile>=0.12.1
 python-multipart>=0.0.9
