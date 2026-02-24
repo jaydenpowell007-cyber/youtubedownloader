@@ -66,6 +66,10 @@ app.add_middleware(
 
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Dedicated executor for stem separation — only 1 concurrent job to prevent
+# CPU/memory contention that causes Railway to kill the process.
+stem_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stems")
+
 
 # --- Request / Response models ---
 
@@ -782,8 +786,8 @@ async def api_stems_start(req: StemRequest):
     )
     _set_job(job)
 
-    # Submit entire pipeline (download + separation) to background
-    executor.submit(_run_stem_pipeline, job, req.url, req.quality, req.stems)
+    # Submit entire pipeline (download + separation) to dedicated stem executor
+    stem_executor.submit(_run_stem_pipeline, job, req.url, req.quality, req.stems)
 
     return _job_to_status(job)
 
@@ -827,8 +831,8 @@ async def api_stems_upload(
         job.stems = {"quality_warning": quality_info["warning"]}
     _set_job(job)
 
-    # Run separation in background
-    executor.submit(_run_stem_separation, job, tmp.name, selected_stems, tmp.name)
+    # Run separation in dedicated stem executor (max 1 concurrent)
+    stem_executor.submit(_run_stem_separation, job, tmp.name, selected_stems, tmp.name)
 
     return _job_to_status(job)
 

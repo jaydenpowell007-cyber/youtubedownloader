@@ -1,5 +1,6 @@
 """Demucs-powered stem separation engine."""
 
+import logging
 import os
 import tempfile
 import zipfile
@@ -17,8 +18,25 @@ _AUDIO_BACKEND = "soundfile"
 
 from backend.errors import SeparationError
 
+logger = logging.getLogger(__name__)
+
 # Lazy-loaded, cached singleton
 _model = None
+
+# Limit PyTorch CPU threads to avoid over-subscribing server vCPUs.
+# Railway's 8 vCPU plan gets throttled/killed when Demucs saturates all cores.
+# Using 4 threads leaves headroom for the web server, downloads, and OS.
+_MAX_TORCH_THREADS = int(os.environ.get("DEMUCS_THREADS", "4"))
+torch.set_num_threads(_MAX_TORCH_THREADS)
+torch.set_num_interop_threads(2)
+
+# Segment length in seconds for chunked processing.
+# Smaller = less peak memory/CPU, but slightly lower quality at boundaries.
+# Default 30s balances quality vs. resource usage on 8GB servers.
+_SEGMENT_SECONDS = int(os.environ.get("DEMUCS_SEGMENT", "30"))
+
+# Overlap ratio between segments (0-1). Higher = smoother transitions.
+_OVERLAP = float(os.environ.get("DEMUCS_OVERLAP", "0.25"))
 
 
 def _get_model():
@@ -26,8 +44,10 @@ def _get_model():
     global _model
     if _model is None:
         try:
+            logger.info("Loading HTDemucs model (first time — may download ~80MB)...")
             _model = get_model("htdemucs")
             _model.eval()
+            logger.info("HTDemucs model loaded successfully.")
         except Exception as e:
             raise SeparationError(f"Failed to load Demucs model: {e}")
     return _model
@@ -63,11 +83,29 @@ def separate_stems(audio_path: str, output_dir: str) -> dict[str, str]:
     # Add batch dimension: (1, channels, samples)
     wav = wav.unsqueeze(0)
 
+    duration_sec = wav.shape[-1] / model.samplerate
+    logger.info(
+        "Starting inference: %.1fs audio, segment=%ds, overlap=%.2f, threads=%d",
+        duration_sec, _SEGMENT_SECONDS, _OVERLAP, _MAX_TORCH_THREADS,
+    )
+
     try:
         with torch.no_grad():
-            sources = apply_model(model, wav, device="cpu")
+            sources = apply_model(
+                model,
+                wav,
+                device="cpu",
+                segment=_SEGMENT_SECONDS,
+                overlap=_OVERLAP,
+                shifts=1,
+                split=True,
+                progress=True,
+                num_workers=0,
+            )
     except Exception as e:
         raise SeparationError(f"Demucs separation failed: {e}")
+
+    logger.info("Inference complete for %.1fs audio.", duration_sec)
 
     # sources shape: (1, num_sources, 2, samples)
     # model.sources = ['drums', 'bass', 'other', 'vocals']
